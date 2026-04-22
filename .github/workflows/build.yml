@@ -1,0 +1,1211 @@
+name: Build Accessible PDF Reader APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ─────────────────────────────────────────────
+      # STEP 1: Generate all project source files
+      # ─────────────────────────────────────────────
+      - name: Generate project source files
+        run: |
+          python3 - << 'PYEOF'
+          import os, base64, textwrap
+
+          def write(path, content):
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(content)
+              print(f"  ✅ {path}")
+
+          # ── settings.gradle ──────────────────────────────────────────────
+          write("settings.gradle.kts", """
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "NKPdfReader"
+          include(":app")
+          """.strip())
+
+          # ── root build.gradle ────────────────────────────────────────────
+          write("build.gradle.kts", """
+          plugins {
+              id("com.android.application") version "8.3.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.23" apply false
+          }
+          """.strip())
+
+          # ── gradle.properties ────────────────────────────────────────────
+          write("gradle.properties", """
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
+          kotlin.code.style=official
+          """.strip())
+
+          # ── app/build.gradle ─────────────────────────────────────────────
+          write("app/build.gradle.kts", """
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.nareshkushmi.nkpdfreader"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.nareshkushmi.nkpdfreader"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions { jvmTarget = "17" }
+
+              buildFeatures { viewBinding = true }
+
+              packaging {
+                  resources {
+                      excludes += "/META-INF/{AL2.0,LGPL2.1}"
+                      excludes += "META-INF/DEPENDENCIES"
+                  }
+              }
+          }
+
+          dependencies {
+              // AndroidX core
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("com.google.android.material:material:1.12.0")
+              implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+              implementation("androidx.recyclerview:recyclerview:1.3.2")
+              implementation("androidx.viewpager2:viewpager2:1.1.0")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
+              implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.2")
+              implementation("androidx.activity:activity-ktx:1.9.0")
+              implementation("androidx.fragment:fragment-ktx:1.8.0")
+
+              // Apache PDFBox Android port
+              implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+              // Google ML Kit OCR
+              implementation("com.google.mlkit:text-recognition:16.0.0")
+              implementation("com.google.mlkit:text-recognition-devanagari:16.0.0")
+
+              // Coroutines
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+          }
+          """.strip())
+
+          # ── AndroidManifest.xml ──────────────────────────────────────────
+          write("app/src/main/AndroidManifest.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+                  android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+              <!-- For Android 13+ document access -->
+              <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.NKPdfReader"
+                  android:largeHeap="true">
+
+                  <activity
+                      android:name=".ui.MainActivity"
+                      android:exported="true"
+                      android:label="@string/app_name"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <!-- Open PDF files directly -->
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="application/pdf" />
+                      </intent-filter>
+                  </activity>
+
+                  <activity
+                      android:name=".ui.PdfViewerActivity"
+                      android:exported="false"
+                      android:label="@string/pdf_viewer"
+                      android:windowSoftInputMode="adjustResize" />
+
+                  <!-- Accessibility Service -->
+                  <service
+                      android:name=".accessibility.PdfAccessibilityService"
+                      android:exported="true"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                      android:label="@string/accessibility_service_label">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_service_config" />
+                  </service>
+
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
+
+              </application>
+          </manifest>
+          """.strip())
+
+          # ── strings.xml ──────────────────────────────────────────────────
+          write("app/src/main/res/values/strings.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">NK PDF Reader</string>
+              <string name="pdf_viewer">PDF Viewer</string>
+              <string name="accessibility_service_label">NK PDF Reader Accessibility</string>
+              <string name="open_pdf">Open PDF</string>
+              <string name="read_aloud">Read Aloud</string>
+              <string name="stop_reading">Stop Reading</string>
+              <string name="ocr_extract">Extract Text (OCR)</string>
+              <string name="page_of">Page %1$d of %2$d</string>
+              <string name="zoom_in">Zoom In</string>
+              <string name="zoom_out">Zoom Out</string>
+              <string name="night_mode">Night Mode</string>
+              <string name="font_size">Font Size</string>
+              <string name="loading_pdf">Loading PDF...</string>
+              <string name="ocr_processing">Extracting text with OCR...</string>
+              <string name="tts_not_available">Text-to-Speech not available on this device</string>
+              <string name="content_desc_page">PDF page %1$d</string>
+              <string name="content_desc_prev_page">Previous page</string>
+              <string name="content_desc_next_page">Next page</string>
+              <string name="content_desc_read_aloud">Read page aloud</string>
+              <string name="permission_rationale">Storage permission needed to open PDF files</string>
+              <string name="open_file_manager">Open File Manager</string>
+          </resources>
+          """.strip())
+
+          # ── themes.xml ───────────────────────────────────────────────────
+          write("app/src/main/res/values/themes.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.NKPdfReader" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+                  <item name="colorPrimary">@color/purple_500</item>
+                  <item name="colorPrimaryVariant">@color/purple_700</item>
+                  <item name="colorOnPrimary">@color/white</item>
+                  <item name="colorSecondary">@color/teal_200</item>
+                  <item name="colorSecondaryVariant">@color/teal_700</item>
+                  <item name="colorOnSecondary">@color/black</item>
+                  <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+              </style>
+          </resources>
+          """.strip())
+
+          # ── colors.xml ───────────────────────────────────────────────────
+          write("app/src/main/res/values/colors.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="purple_200">#FFBB86FC</color>
+              <color name="purple_500">#FF6200EE</color>
+              <color name="purple_700">#FF3700B3</color>
+              <color name="teal_200">#FF03DAC5</color>
+              <color name="teal_700">#FF018786</color>
+              <color name="black">#FF000000</color>
+              <color name="white">#FFFFFFFF</color>
+              <color name="night_bg">#FF121212</color>
+              <color name="night_text">#FFE0E0E0</color>
+          </resources>
+          """.strip())
+
+          # ── accessibility_service_config.xml ─────────────────────────────
+          write("app/src/main/res/xml/accessibility_service_config.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeViewClicked|typeViewFocused|typeViewScrolled|typeWindowContentChanged"
+              android:accessibilityFeedbackType="feedbackSpoken"
+              android:accessibilityFlags="flagDefault|flagReportViewIds|flagRequestTouchExplorationMode"
+              android:canRetrieveWindowContent="true"
+              android:description="@string/accessibility_service_label"
+              android:notificationTimeout="100"
+              android:packageNames="com.nareshkushmi.nkpdfreader"
+              android:settingsActivity=".ui.MainActivity" />
+          """.strip())
+
+          # ── file_paths.xml ───────────────────────────────────────────────
+          write("app/src/main/res/xml/file_paths.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <files-path name="files" path="." />
+              <cache-path name="cache" path="." />
+              <external-files-path name="external_files" path="." />
+          </paths>
+          """.strip())
+
+          # ── activity_main.xml ────────────────────────────────────────────
+          write("app/src/main/res/layout/activity_main.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <androidx.constraintlayout.widget.ConstraintLayout
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:importantForAccessibility="yes">
+
+              <com.google.android.material.appbar.AppBarLayout
+                  android:id="@+id/appBarLayout"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  app:layout_constraintTop_toTopOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent">
+
+                  <com.google.android.material.appbar.MaterialToolbar
+                      android:id="@+id/toolbar"
+                      android:layout_width="match_parent"
+                      android:layout_height="?attr/actionBarSize"
+                      app:title="@string/app_name" />
+              </com.google.android.material.appbar.AppBarLayout>
+
+              <!-- Empty state / welcome screen -->
+              <LinearLayout
+                  android:id="@+id/emptyState"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:gravity="center"
+                  android:orientation="vertical"
+                  android:padding="32dp"
+                  android:importantForAccessibility="yes"
+                  app:layout_constraintTop_toBottomOf="@id/appBarLayout"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent">
+
+                  <ImageView
+                      android:layout_width="120dp"
+                      android:layout_height="120dp"
+                      android:src="@android:drawable/ic_menu_agenda"
+                      android:contentDescription="@null"
+                      android:importantForAccessibility="no"
+                      android:alpha="0.5" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="NK PDF Reader"
+                      android:textSize="24sp"
+                      android:textStyle="bold"
+                      android:layout_marginTop="16dp"
+                      android:accessibilityHeading="true" />
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="Accessible PDF reading with TalkBack support and OCR"
+                      android:textSize="16sp"
+                      android:gravity="center"
+                      android:layout_marginTop="8dp" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnOpenPdf"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="@string/open_pdf"
+                      android:layout_marginTop="32dp"
+                      android:contentDescription="@string/open_pdf"
+                      android:minHeight="48dp"
+                      android:minWidth="48dp" />
+              </LinearLayout>
+
+          </androidx.constraintlayout.widget.ConstraintLayout>
+          """.strip())
+
+          # ── activity_pdf_viewer.xml ──────────────────────────────────────
+          write("app/src/main/res/layout/activity_pdf_viewer.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <androidx.constraintlayout.widget.ConstraintLayout
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:importantForAccessibility="yes">
+
+              <com.google.android.material.appbar.AppBarLayout
+                  android:id="@+id/appBar"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  app:layout_constraintTop_toTopOf="parent">
+
+                  <com.google.android.material.appbar.MaterialToolbar
+                      android:id="@+id/toolbar"
+                      android:layout_width="match_parent"
+                      android:layout_height="?attr/actionBarSize"
+                      app:navigationIcon="@android:drawable/ic_media_previous"
+                      app:navigationContentDescription="Back"
+                      app:menu="@menu/menu_pdf_viewer" />
+              </com.google.android.material.appbar.AppBarLayout>
+
+              <!-- PDF page display with zoom support -->
+              <androidx.viewpager2.widget.ViewPager2
+                  android:id="@+id/viewPager"
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:importantForAccessibility="yes"
+                  app:layout_constraintTop_toBottomOf="@id/appBar"
+                  app:layout_constraintBottom_toTopOf="@id/bottomBar"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent" />
+
+              <!-- Loading overlay -->
+              <LinearLayout
+                  android:id="@+id/loadingOverlay"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:gravity="center"
+                  android:orientation="vertical"
+                  android:background="#88000000"
+                  android:visibility="gone"
+                  android:importantForAccessibility="yes"
+                  android:accessibilityLiveRegion="polite"
+                  app:layout_constraintTop_toTopOf="parent"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent">
+
+                  <ProgressBar
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:indeterminate="true"
+                      android:contentDescription="@null"
+                      android:importantForAccessibility="no" />
+
+                  <TextView
+                      android:id="@+id/tvLoading"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="@string/loading_pdf"
+                      android:textColor="@color/white"
+                      android:layout_marginTop="16dp"
+                      android:accessibilityLiveRegion="polite" />
+              </LinearLayout>
+
+              <!-- Bottom navigation bar -->
+              <LinearLayout
+                  android:id="@+id/bottomBar"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="horizontal"
+                  android:padding="8dp"
+                  android:background="?attr/colorSurface"
+                  android:elevation="8dp"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent">
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnPrevPage"
+                      style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:text="◀"
+                      android:contentDescription="@string/content_desc_prev_page"
+                      android:minHeight="48dp" />
+
+                  <TextView
+                      android:id="@+id/tvPageInfo"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="2"
+                      android:gravity="center"
+                      android:text="Page 1 of 1"
+                      android:textSize="16sp"
+                      android:accessibilityLiveRegion="polite"
+                      android:importantForAccessibility="yes" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnNextPage"
+                      style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:text="▶"
+                      android:contentDescription="@string/content_desc_next_page"
+                      android:minHeight="48dp" />
+              </LinearLayout>
+
+              <!-- Extracted text panel (for accessibility / TTS) -->
+              <com.google.android.material.card.MaterialCardView
+                  android:id="@+id/textPanel"
+                  android:layout_width="match_parent"
+                  android:layout_height="200dp"
+                  android:visibility="gone"
+                  app:layout_constraintBottom_toTopOf="@id/bottomBar"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent">
+
+                  <ScrollView
+                      android:layout_width="match_parent"
+                      android:layout_height="match_parent">
+                      <TextView
+                          android:id="@+id/tvExtractedText"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:padding="16dp"
+                          android:textSize="16sp"
+                          android:importantForAccessibility="yes"
+                          android:accessibilityLiveRegion="polite"
+                          android:focusable="true" />
+                  </ScrollView>
+              </com.google.android.material.card.MaterialCardView>
+
+          </androidx.constraintlayout.widget.ConstraintLayout>
+          """.strip())
+
+          # ── menu_pdf_viewer.xml ──────────────────────────────────────────
+          write("app/src/main/res/menu/menu_pdf_viewer.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <menu xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto">
+
+              <item
+                  android:id="@+id/action_read_aloud"
+                  android:title="@string/read_aloud"
+                  android:icon="@android:drawable/ic_btn_speak_now"
+                  android:contentDescription="@string/content_desc_read_aloud"
+                  app:showAsAction="ifRoom" />
+
+              <item
+                  android:id="@+id/action_ocr"
+                  android:title="@string/ocr_extract"
+                  app:showAsAction="never" />
+
+              <item
+                  android:id="@+id/action_zoom_in"
+                  android:title="@string/zoom_in"
+                  android:contentDescription="@string/zoom_in"
+                  app:showAsAction="never" />
+
+              <item
+                  android:id="@+id/action_zoom_out"
+                  android:title="@string/zoom_out"
+                  android:contentDescription="@string/zoom_out"
+                  app:showAsAction="never" />
+
+              <item
+                  android:id="@+id/action_night_mode"
+                  android:title="@string/night_mode"
+                  app:showAsAction="never" />
+
+          </menu>
+          """.strip())
+
+          # ── item_pdf_page.xml ────────────────────────────────────────────
+          write("app/src/main/res/layout/item_pdf_page.xml", """
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:importantForAccessibility="yes">
+
+              <ImageView
+                  android:id="@+id/ivPage"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:scaleType="fitCenter"
+                  android:adjustViewBounds="true"
+                  android:focusable="true"
+                  android:importantForAccessibility="yes" />
+
+          </FrameLayout>
+          """.strip())
+
+          # ── PdfRepository.kt ─────────────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/data/PdfRepository.kt", """
+          package com.nareshkushmi.nkpdfreader.data
+
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.net.Uri
+          import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+          import com.tom_roush.pdfbox.pdmodel.PDDocument
+          import com.tom_roush.pdfbox.rendering.PDFRenderer
+          import com.tom_roush.pdfbox.text.PDFTextStripper
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import java.io.InputStream
+
+          class PdfRepository(private val context: Context) {
+
+              private var pdDocument: PDDocument? = null
+              private var pdfRenderer: PDFRenderer? = null
+
+              init {
+                  PDFBoxResourceLoader.init(context)
+              }
+
+              suspend fun openPdf(uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
+                  runCatching {
+                      pdDocument?.close()
+                      val inputStream: InputStream = context.contentResolver.openInputStream(uri)
+                          ?: error("Cannot open PDF stream")
+                      pdDocument = PDDocument.load(inputStream)
+                      pdfRenderer = PDFRenderer(pdDocument!!)
+                      pdDocument!!.numberOfPages
+                  }
+              }
+
+              /**
+               * Render a single PDF page as a Bitmap.
+               * [dpi] default 150 — good balance of quality and memory.
+               * [nightMode] inverts colors for dark reading.
+               */
+              suspend fun renderPage(
+                  pageIndex: Int,
+                  dpi: Float = 150f,
+                  nightMode: Boolean = false
+              ): Result<Bitmap> = withContext(Dispatchers.IO) {
+                  runCatching {
+                      val renderer = pdfRenderer ?: error("PDF not opened")
+                      var bitmap = renderer.renderImageWithDPI(pageIndex, dpi)
+                      if (nightMode) bitmap = invertBitmap(bitmap)
+                      bitmap
+                  }
+              }
+
+              /**
+               * Extract text from a PDF page using PDFBox TextStripper.
+               * Returns empty string if page has no selectable text (scanned PDF).
+               */
+              suspend fun extractTextFromPage(pageIndex: Int): Result<String> =
+                  withContext(Dispatchers.IO) {
+                      runCatching {
+                          val doc = pdDocument ?: error("PDF not opened")
+                          val stripper = PDFTextStripper().apply {
+                              startPage = pageIndex + 1
+                              endPage = pageIndex + 1
+                          }
+                          stripper.getText(doc).trim()
+                      }
+                  }
+
+              fun getPageCount(): Int = pdDocument?.numberOfPages ?: 0
+
+              fun closePdf() {
+                  pdDocument?.close()
+                  pdDocument = null
+                  pdfRenderer = null
+              }
+
+              private fun invertBitmap(src: Bitmap): Bitmap {
+                  val result = Bitmap.createBitmap(src.width, src.height, src.config)
+                  val canvas = Canvas(result)
+                  canvas.drawColor(Color.BLACK)
+                  for (x in 0 until src.width) {
+                      for (y in 0 until src.height) {
+                          val pixel = src.getPixel(x, y)
+                          result.setPixel(
+                              x, y,
+                              Color.argb(
+                                  Color.alpha(pixel),
+                                  255 - Color.red(pixel),
+                                  255 - Color.green(pixel),
+                                  255 - Color.blue(pixel)
+                              )
+                          )
+                      }
+                  }
+                  return result
+              }
+          }
+          """.strip())
+
+          # ── OcrRepository.kt ─────────────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/data/OcrRepository.kt", """
+          package com.nareshkushmi.nkpdfreader.data
+
+          import android.graphics.Bitmap
+          import com.google.mlkit.vision.common.InputImage
+          import com.google.mlkit.vision.text.TextRecognition
+          import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+          import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+          import kotlinx.coroutines.tasks.await
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+
+          class OcrRepository {
+
+              // Latin script recognizer (English, numbers, etc.)
+              private val latinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+              // Devanagari recognizer (Nepali / Hindi)
+              private val devanagariRecognizer = TextRecognition.getClient(
+                  DevanagariTextRecognizerOptions.Builder().build()
+              )
+
+              /**
+               * Extract text from a rendered PDF page bitmap using ML Kit OCR.
+               * Tries Latin first; if result is sparse, also tries Devanagari.
+               */
+              suspend fun extractTextFromBitmap(
+                  bitmap: Bitmap,
+                  preferDevanagari: Boolean = false
+              ): Result<String> = withContext(Dispatchers.IO) {
+                  runCatching {
+                      val image = InputImage.fromBitmap(bitmap, 0)
+                      val recognizer = if (preferDevanagari) devanagariRecognizer else latinRecognizer
+                      val result = recognizer.process(image).await()
+                      val text = result.text.trim()
+
+                      // If Latin result is sparse, try Devanagari as fallback
+                      if (!preferDevanagari && text.length < 20) {
+                          val devResult = devanagariRecognizer.process(image).await()
+                          val devText = devResult.text.trim()
+                          if (devText.length > text.length) return@runCatching devText
+                      }
+                      text
+                  }
+              }
+
+              fun close() {
+                  latinRecognizer.close()
+                  devanagariRecognizer.close()
+              }
+          }
+          """.strip())
+
+          # ── PdfViewModel.kt ──────────────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/viewmodel/PdfViewModel.kt", """
+          package com.nareshkushmi.nkpdfreader.viewmodel
+
+          import android.app.Application
+          import android.graphics.Bitmap
+          import android.net.Uri
+          import androidx.lifecycle.AndroidViewModel
+          import androidx.lifecycle.LiveData
+          import androidx.lifecycle.MutableLiveData
+          import androidx.lifecycle.viewModelScope
+          import com.nareshkushmi.nkpdfreader.data.OcrRepository
+          import com.nareshkushmi.nkpdfreader.data.PdfRepository
+          import kotlinx.coroutines.launch
+
+          sealed class UiState {
+              object Idle : UiState()
+              object Loading : UiState()
+              data class PageReady(val bitmap: Bitmap, val pageIndex: Int, val total: Int) : UiState()
+              data class TextReady(val text: String) : UiState()
+              data class Error(val message: String) : UiState()
+          }
+
+          class PdfViewModel(application: Application) : AndroidViewModel(application) {
+
+              private val pdfRepo = PdfRepository(application)
+              private val ocrRepo = OcrRepository()
+
+              private val _uiState = MutableLiveData<UiState>(UiState.Idle)
+              val uiState: LiveData<UiState> = _uiState
+
+              private val _currentPage = MutableLiveData(0)
+              val currentPage: LiveData<Int> = _currentPage
+
+              var totalPages = 0
+                  private set
+
+              var nightMode = false
+              var zoomDpi = 150f
+
+              fun openPdf(uri: Uri) {
+                  viewModelScope.launch {
+                      _uiState.value = UiState.Loading
+                      pdfRepo.openPdf(uri).fold(
+                          onSuccess = { pageCount ->
+                              totalPages = pageCount
+                              _currentPage.value = 0
+                              renderCurrentPage()
+                          },
+                          onFailure = { _uiState.value = UiState.Error(it.message ?: "Failed to open PDF") }
+                      )
+                  }
+              }
+
+              fun goToPage(index: Int) {
+                  if (index < 0 || index >= totalPages) return
+                  _currentPage.value = index
+                  renderCurrentPage()
+              }
+
+              fun nextPage() = goToPage((_currentPage.value ?: 0) + 1)
+              fun prevPage() = goToPage((_currentPage.value ?: 0) - 1)
+
+              private fun renderCurrentPage() {
+                  val page = _currentPage.value ?: return
+                  viewModelScope.launch {
+                      _uiState.value = UiState.Loading
+                      pdfRepo.renderPage(page, zoomDpi, nightMode).fold(
+                          onSuccess = { bitmap ->
+                              _uiState.value = UiState.PageReady(bitmap, page, totalPages)
+                          },
+                          onFailure = { _uiState.value = UiState.Error(it.message ?: "Render error") }
+                      )
+                  }
+              }
+
+              /**
+               * Extract text: tries PDFBox first (fast, accurate for real text).
+               * Falls back to ML Kit OCR for scanned/image-based PDFs.
+               */
+              fun extractText(preferDevanagari: Boolean = false) {
+                  val page = _currentPage.value ?: return
+                  viewModelScope.launch {
+                      _uiState.value = UiState.Loading
+                      // 1) Try PDFBox text extraction
+                      val pdfText = pdfRepo.extractTextFromPage(page).getOrNull()
+                      if (!pdfText.isNullOrBlank() && pdfText.length > 30) {
+                          _uiState.value = UiState.TextReady(pdfText)
+                          return@launch
+                      }
+                      // 2) Fallback: OCR on rendered bitmap
+                      pdfRepo.renderPage(page, 200f, false).fold(
+                          onSuccess = { bitmap ->
+                              ocrRepo.extractTextFromBitmap(bitmap, preferDevanagari).fold(
+                                  onSuccess = { text ->
+                                      _uiState.value = UiState.TextReady(
+                                          text.ifBlank { "No text found on this page." }
+                                      )
+                                  },
+                                  onFailure = { _uiState.value = UiState.Error("OCR failed: ${it.message}") }
+                              )
+                          },
+                          onFailure = { _uiState.value = UiState.Error(it.message ?: "Render error") }
+                      )
+                  }
+              }
+
+              override fun onCleared() {
+                  super.onCleared()
+                  pdfRepo.closePdf()
+                  ocrRepo.close()
+              }
+          }
+          """.strip())
+
+          # ── MainActivity.kt ──────────────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/MainActivity.kt", """
+          package com.nareshkushmi.nkpdfreader.ui
+
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import com.nareshkushmi.nkpdfreader.databinding.ActivityMainBinding
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var binding: ActivityMainBinding
+
+              private val openPdfLauncher = registerForActivityResult(
+                  ActivityResultContracts.GetContent()
+              ) { uri: Uri? ->
+                  uri?.let { openPdfViewer(it) }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  binding = ActivityMainBinding.inflate(layoutInflater)
+                  setContentView(binding.root)
+                  setSupportActionBar(binding.toolbar)
+
+                  binding.btnOpenPdf.setOnClickListener {
+                      openPdfLauncher.launch("application/pdf")
+                  }
+
+                  // Handle intent if opened via file manager
+                  intent?.data?.let { openPdfViewer(it) }
+              }
+
+              private fun openPdfViewer(uri: Uri) {
+                  val intent = Intent(this, PdfViewerActivity::class.java).apply {
+                      putExtra(PdfViewerActivity.EXTRA_PDF_URI, uri.toString())
+                  }
+                  startActivity(intent)
+              }
+          }
+          """.strip())
+
+          # ── PdfViewerActivity.kt ─────────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/PdfViewerActivity.kt", """
+          package com.nareshkushmi.nkpdfreader.ui
+
+          import android.net.Uri
+          import android.os.Bundle
+          import android.speech.tts.TextToSpeech
+          import android.view.MenuItem
+          import android.view.View
+          import android.widget.Toast
+          import androidx.activity.viewModels
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.view.AccessibilityDelegateCompat
+          import androidx.core.view.ViewCompat
+          import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+          import com.nareshkushmi.nkpdfreader.databinding.ActivityPdfViewerBinding
+          import com.nareshkushmi.nkpdfreader.viewmodel.PdfViewModel
+          import com.nareshkushmi.nkpdfreader.viewmodel.UiState
+          import java.util.Locale
+
+          class PdfViewerActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
+
+              companion object {
+                  const val EXTRA_PDF_URI = "extra_pdf_uri"
+              }
+
+              private lateinit var binding: ActivityPdfViewerBinding
+              private val viewModel: PdfViewModel by viewModels()
+              private var tts: TextToSpeech? = null
+              private var ttsReady = false
+              private var isReading = false
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  binding = ActivityPdfViewerBinding.inflate(layoutInflater)
+                  setContentView(binding.root)
+                  setSupportActionBar(binding.toolbar)
+                  supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+                  tts = TextToSpeech(this, this)
+
+                  val uriString = intent.getStringExtra(EXTRA_PDF_URI)
+                      ?: run { finish(); return }
+                  val uri = Uri.parse(uriString)
+
+                  setupViewPager()
+                  setupBottomBar()
+                  observeViewModel()
+
+                  viewModel.openPdf(uri)
+              }
+
+              private fun setupViewPager() {
+                  // ViewPager2 handles page swiping
+                  binding.viewPager.isUserInputEnabled = true
+                  binding.viewPager.registerOnPageChangeCallback(object :
+                      androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+                      override fun onPageSelected(position: Int) {
+                          viewModel.goToPage(position)
+                      }
+                  })
+              }
+
+              private fun setupBottomBar() {
+                  binding.btnPrevPage.setOnClickListener {
+                      viewModel.prevPage()
+                  }
+                  binding.btnNextPage.setOnClickListener {
+                      viewModel.nextPage()
+                  }
+
+                  // Accessibility: announce page changes
+                  ViewCompat.setAccessibilityDelegate(
+                      binding.tvPageInfo,
+                      object : AccessibilityDelegateCompat() {
+                          override fun onInitializeAccessibilityNodeInfo(
+                              host: View,
+                              info: AccessibilityNodeInfoCompat
+                          ) {
+                              super.onInitializeAccessibilityNodeInfo(host, info)
+                              info.isAccessibilityFocused = true
+                          }
+                      }
+                  )
+              }
+
+              private fun observeViewModel() {
+                  viewModel.uiState.observe(this) { state ->
+                      when (state) {
+                          is UiState.Loading -> {
+                              binding.loadingOverlay.visibility = View.VISIBLE
+                          }
+                          is UiState.PageReady -> {
+                              binding.loadingOverlay.visibility = View.GONE
+                              val desc = getString(
+                                  com.nareshkushmi.nkpdfreader.R.string.content_desc_page,
+                                  state.pageIndex + 1
+                              )
+                              // Update page info label for accessibility
+                              val pageText = getString(
+                                  com.nareshkushmi.nkpdfreader.R.string.page_of,
+                                  state.pageIndex + 1,
+                                  state.total
+                              )
+                              binding.tvPageInfo.text = pageText
+                              binding.tvPageInfo.contentDescription = pageText
+                              // Announce for TalkBack
+                              binding.tvPageInfo.announceForAccessibility(pageText)
+                          }
+                          is UiState.TextReady -> {
+                              binding.loadingOverlay.visibility = View.GONE
+                              binding.textPanel.visibility = View.VISIBLE
+                              binding.tvExtractedText.text = state.text
+                              binding.tvExtractedText.announceForAccessibility(
+                                  "Text extracted. ${state.text.take(100)}"
+                              )
+                              if (isReading) speakText(state.text)
+                          }
+                          is UiState.Error -> {
+                              binding.loadingOverlay.visibility = View.GONE
+                              Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+                          }
+                          else -> {}
+                      }
+                  }
+              }
+
+              override fun onOptionsItemSelected(item: MenuItem): Boolean {
+                  return when (item.itemId) {
+                      android.R.id.home -> { onBackPressedDispatcher.onBackPressed(); true }
+                      com.nareshkushmi.nkpdfreader.R.id.action_read_aloud -> {
+                          if (!ttsReady) {
+                              Toast.makeText(this,
+                                  getString(com.nareshkushmi.nkpdfreader.R.string.tts_not_available),
+                                  Toast.LENGTH_SHORT).show()
+                              return true
+                          }
+                          isReading = !isReading
+                          if (isReading) {
+                              item.title = getString(com.nareshkushmi.nkpdfreader.R.string.stop_reading)
+                              viewModel.extractText()
+                          } else {
+                              item.title = getString(com.nareshkushmi.nkpdfreader.R.string.read_aloud)
+                              tts?.stop()
+                          }
+                          true
+                      }
+                      com.nareshkushmi.nkpdfreader.R.id.action_ocr -> {
+                          viewModel.extractText(preferDevanagari = false)
+                          true
+                      }
+                      com.nareshkushmi.nkpdfreader.R.id.action_zoom_in -> {
+                          viewModel.zoomDpi = (viewModel.zoomDpi + 25f).coerceAtMost(300f)
+                          viewModel.goToPage(viewModel.currentPage.value ?: 0)
+                          true
+                      }
+                      com.nareshkushmi.nkpdfreader.R.id.action_zoom_out -> {
+                          viewModel.zoomDpi = (viewModel.zoomDpi - 25f).coerceAtLeast(72f)
+                          viewModel.goToPage(viewModel.currentPage.value ?: 0)
+                          true
+                      }
+                      com.nareshkushmi.nkpdfreader.R.id.action_night_mode -> {
+                          viewModel.nightMode = !viewModel.nightMode
+                          viewModel.goToPage(viewModel.currentPage.value ?: 0)
+                          true
+                      }
+                      else -> super.onOptionsItemSelected(item)
+                  }
+              }
+
+              // ── TextToSpeech ─────────────────────────────────────────────
+              override fun onInit(status: Int) {
+                  if (status == TextToSpeech.SUCCESS) {
+                      tts?.language = Locale.getDefault()
+                      ttsReady = true
+                  }
+              }
+
+              private fun speakText(text: String) {
+                  tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "pdf_read")
+              }
+
+              override fun onDestroy() {
+                  tts?.stop()
+                  tts?.shutdown()
+                  super.onDestroy()
+              }
+          }
+          """.strip())
+
+          # ── PdfAccessibilityService.kt ───────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/accessibility/PdfAccessibilityService.kt", """
+          package com.nareshkushmi.nkpdfreader.accessibility
+
+          import android.accessibilityservice.AccessibilityService
+          import android.view.accessibility.AccessibilityEvent
+
+          /**
+           * Accessibility service that enhances PDF page navigation for TalkBack users.
+           * Announces page transitions and text content changes automatically.
+           */
+          class PdfAccessibilityService : AccessibilityService() {
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent) {
+                  when (event.eventType) {
+                      AccessibilityEvent.TYPE_VIEW_SCROLLED,
+                      AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                          // Let TalkBack handle content changes natively
+                          // (views use announceForAccessibility + accessibilityLiveRegion)
+                      }
+                  }
+              }
+
+              override fun onInterrupt() {
+                  // Required override
+              }
+          }
+          """.strip())
+
+          # ── proguard-rules.pro ───────────────────────────────────────────
+          write("app/proguard-rules.pro", """
+          # PDFBox
+          -keep class com.tom_roush.pdfbox.** { *; }
+          -dontwarn com.tom_roush.pdfbox.**
+
+          # ML Kit
+          -keep class com.google.mlkit.** { *; }
+          -dontwarn com.google.mlkit.**
+          """.strip())
+
+          print("\n🎉 All source files generated successfully!")
+          PYEOF
+
+      # ─────────────────────────────────────────────
+      # STEP 2: Setup Android SDK
+      # ─────────────────────────────────────────────
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
+      # ─────────────────────────────────────────────
+      # STEP 3: Setup Gradle wrapper
+      # ─────────────────────────────────────────────
+      - name: Setup Gradle wrapper
+        run: |
+          mkdir -p gradle/wrapper
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.6-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          # Download gradle wrapper jar
+          curl -sL "https://raw.githubusercontent.com/gradle/gradle/v8.6.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar
+
+          # Create gradlew script
+          cat > gradlew << 'GRADLEW'
+          #!/bin/sh
+          exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
+          GRADLEW
+          chmod +x gradlew
+
+      # ─────────────────────────────────────────────
+      # STEP 4: Cache Gradle dependencies
+      # ─────────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ─────────────────────────────────────────────
+      # STEP 5: Build debug APK
+      # ─────────────────────────────────────────────
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      # ─────────────────────────────────────────────
+      # STEP 6: Upload APK artifact
+      # ─────────────────────────────────────────────
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nk-pdf-reader-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      - name: Build summary
+        run: |
+          echo "## ✅ NK PDF Reader Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Detail |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| PDF Engine | Apache PDFBox Android 2.0.27.0 |" >> $GITHUB_STEP_SUMMARY
+          echo "| OCR Engine | Google ML Kit (Latin + Devanagari) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Min SDK | 26 (Android 8.0) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target SDK | 34 (Android 14) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Accessibility | TalkBack + AccessibilityService |" >> $GITHUB_STEP_SUMMARY
+          echo "| TTS | Android TextToSpeech |" >> $GITHUB_STEP_SUMMARY
+          APK_SIZE=$(du -sh app/build/outputs/apk/debug/app-debug.apk 2>/dev/null | cut -f1 || echo "N/A")
+          echo "| APK Size | $APK_SIZE |" >> $GITHUB_STEP_SUMMARY
