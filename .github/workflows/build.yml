@@ -35,7 +35,9 @@ jobs:
           import os, base64, textwrap
 
           def write(path, content):
-              os.makedirs(os.path.dirname(path), exist_ok=True)
+              parent = os.path.dirname(path)
+              if parent:
+                  os.makedirs(parent, exist_ok=True)
               with open(path, 'w', encoding='utf-8') as f:
                   f.write(content)
               print(f"  ✅ {path}")
