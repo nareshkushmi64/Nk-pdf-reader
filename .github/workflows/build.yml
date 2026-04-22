@@ -146,6 +146,8 @@ jobs:
 
               // Coroutines
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+              // Required for ML Kit Task.await() extension
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0")
           }
           """.strip())
 
