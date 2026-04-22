@@ -1129,6 +1129,42 @@ jobs:
           -dontwarn com.google.mlkit.**
           """.strip())
 
+          # ── Launcher icons (programmatic PNG via Python struct) ────────
+          # Simple 48x48 purple square icon - no PIL needed, pure Python PNG
+          import struct, zlib
+
+          def make_png(size, r, g, b):
+              """Generate a minimal valid PNG with solid color."""
+              def chunk(name, data):
+                  c = struct.pack(">I", len(data)) + name + data
+                  return c + struct.pack(">I", zlib.crc32(name + data) & 0xFFFFFFFF)
+
+              sig = b"\x89PNG\r\n\x1a\n"
+              ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+              # Build raw image data: filter byte 0x00 + RGB pixels per row
+              row = b"\x00" + bytes([r, g, b] * size)
+              raw = row * size
+              idat = chunk(b"IDAT", zlib.compress(raw))
+              iend = chunk(b"IEND", b"")
+              return sig + ihdr + idat + iend
+
+          icon_configs = [
+              ("mipmap-mdpi",    48,  0x62, 0x00, 0xEE),  # purple_500
+              ("mipmap-hdpi",    72,  0x62, 0x00, 0xEE),
+              ("mipmap-xhdpi",   96,  0x62, 0x00, 0xEE),
+              ("mipmap-xxhdpi",  144, 0x62, 0x00, 0xEE),
+              ("mipmap-xxxhdpi", 192, 0x62, 0x00, 0xEE),
+          ]
+
+          for folder, size, r, g, b in icon_configs:
+              png_data = make_png(size, r, g, b)
+              for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                  path = f"app/src/main/res/{folder}/{name}"
+                  os.makedirs(os.path.dirname(path), exist_ok=True)
+                  with open(path, "wb") as f:
+                      f.write(png_data)
+                  print(f"  ✅ {path}")
+
           print("\n🎉 All source files generated successfully!")
           PYEOF
 
