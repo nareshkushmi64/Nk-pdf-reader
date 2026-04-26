@@ -916,9 +916,6 @@ jobs:
           import android.widget.Toast
           import androidx.activity.viewModels
           import androidx.appcompat.app.AppCompatActivity
-          import androidx.core.view.AccessibilityDelegateCompat
-          import androidx.core.view.ViewCompat
-          import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
           import com.nareshkushmi.nkpdfreader.databinding.ActivityPdfViewerBinding
           import com.nareshkushmi.nkpdfreader.viewmodel.PdfViewModel
           import com.nareshkushmi.nkpdfreader.viewmodel.UiState
@@ -932,6 +929,7 @@ jobs:
 
               private lateinit var binding: ActivityPdfViewerBinding
               private val viewModel: PdfViewModel by viewModels()
+              private lateinit var pdfAdapter: PdfPageAdapter
               private var tts: TextToSpeech? = null
               private var ttsReady = false
               private var isReading = false
@@ -957,37 +955,23 @@ jobs:
               }
 
               private fun setupViewPager() {
-                  // ViewPager2 handles page swiping
+                  pdfAdapter = PdfPageAdapter()
+                  binding.viewPager.adapter = pdfAdapter
                   binding.viewPager.isUserInputEnabled = true
-                  binding.viewPager.registerOnPageChangeCallback(object :
-                      androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
-                      override fun onPageSelected(position: Int) {
-                          viewModel.goToPage(position)
-                      }
-                  })
-              }
-
-              private fun setupBottomBar() {
-                  binding.btnPrevPage.setOnClickListener {
-                      viewModel.prevPage()
-                  }
-                  binding.btnNextPage.setOnClickListener {
-                      viewModel.nextPage()
-                  }
-
-                  // Accessibility: announce page changes
-                  ViewCompat.setAccessibilityDelegate(
-                      binding.tvPageInfo,
-                      object : AccessibilityDelegateCompat() {
-                          override fun onInitializeAccessibilityNodeInfo(
-                              host: View,
-                              info: AccessibilityNodeInfoCompat
-                          ) {
-                              super.onInitializeAccessibilityNodeInfo(host, info)
-                              info.isAccessibilityFocused = true
+                  binding.viewPager.registerOnPageChangeCallback(
+                      object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+                          override fun onPageSelected(position: Int) {
+                              // Only trigger re-render if user swipes to a page
+                              // that hasn't been rendered yet
+                              viewModel.goToPage(position)
                           }
                       }
                   )
+              }
+
+              private fun setupBottomBar() {
+                  binding.btnPrevPage.setOnClickListener { viewModel.prevPage() }
+                  binding.btnNextPage.setOnClickListener { viewModel.nextPage() }
               }
 
               private fun observeViewModel() {
@@ -998,11 +982,15 @@ jobs:
                           }
                           is UiState.PageReady -> {
                               binding.loadingOverlay.visibility = View.GONE
-                              val desc = getString(
-                                  com.nareshkushmi.nkpdfreader.R.string.content_desc_page,
-                                  state.pageIndex + 1
-                              )
-                              // Update page info label for accessibility
+
+                              // ── Key fix: push bitmap into adapter ──
+                              pdfAdapter.updatePage(state.pageIndex, state.bitmap)
+
+                              // Sync ViewPager2 scroll position with current page
+                              if (binding.viewPager.currentItem != state.pageIndex) {
+                                  binding.viewPager.setCurrentItem(state.pageIndex, false)
+                              }
+
                               val pageText = getString(
                                   com.nareshkushmi.nkpdfreader.R.string.page_of,
                                   state.pageIndex + 1,
@@ -1010,7 +998,6 @@ jobs:
                               )
                               binding.tvPageInfo.text = pageText
                               binding.tvPageInfo.contentDescription = pageText
-                              // Announce for TalkBack
                               binding.tvPageInfo.announceForAccessibility(pageText)
                           }
                           is UiState.TextReady -> {
@@ -1018,7 +1005,7 @@ jobs:
                               binding.textPanel.visibility = View.VISIBLE
                               binding.tvExtractedText.text = state.text
                               binding.tvExtractedText.announceForAccessibility(
-                                  "Text extracted. ${state.text.take(100)}"
+                                  "Text extracted. " + state.text.take(100)
                               )
                               if (isReading) speakText(state.text)
                           }
@@ -1074,7 +1061,6 @@ jobs:
                   }
               }
 
-              // ── TextToSpeech ─────────────────────────────────────────────
               override fun onInit(status: Int) {
                   if (status == TextToSpeech.SUCCESS) {
                       tts?.language = Locale.getDefault()
@@ -1120,6 +1106,59 @@ jobs:
               override fun onInterrupt() {
                   // Required override
               }
+          }
+          """.strip())
+
+          # ── PdfPageAdapter.kt ───────────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/PdfPageAdapter.kt", """
+          package com.nareshkushmi.nkpdfreader.ui
+
+          import android.graphics.Bitmap
+          import android.view.LayoutInflater
+          import android.view.ViewGroup
+          import androidx.recyclerview.widget.RecyclerView
+          import com.nareshkushmi.nkpdfreader.databinding.ItemPdfPageBinding
+
+          class PdfPageAdapter : RecyclerView.Adapter<PdfPageAdapter.PageViewHolder>() {
+
+              private val pages = mutableListOf<Bitmap>()
+
+              fun setPages(bitmaps: List<Bitmap>) {
+                  pages.clear()
+                  pages.addAll(bitmaps)
+                  notifyDataSetChanged()
+              }
+
+              fun updatePage(index: Int, bitmap: Bitmap) {
+                  if (index < pages.size) {
+                      pages[index] = bitmap
+                      notifyItemChanged(index)
+                  } else {
+                      while (pages.size < index) pages.add(bitmap)
+                      pages.add(bitmap)
+                      notifyItemInserted(pages.size - 1)
+                  }
+              }
+
+              inner class PageViewHolder(val binding: ItemPdfPageBinding) :
+                  RecyclerView.ViewHolder(binding.root)
+
+              override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageViewHolder {
+                  val binding = ItemPdfPageBinding.inflate(
+                      LayoutInflater.from(parent.context), parent, false
+                  )
+                  return PageViewHolder(binding)
+              }
+
+              override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
+                  holder.binding.ivPage.setImageBitmap(pages[position])
+                  holder.binding.ivPage.contentDescription =
+                      holder.itemView.context.getString(
+                          com.nareshkushmi.nkpdfreader.R.string.content_desc_page, position + 1
+                      )
+              }
+
+              override fun getItemCount(): Int = pages.size
           }
           """.strip())
 
