@@ -29,6 +29,12 @@ jobs:
       # ─────────────────────────────────────────────
       # STEP 1: Generate all project source files
       # ─────────────────────────────────────────────
+      - name: Clean previously generated sources
+        run: |
+          rm -rf app/src/main/java app/src/main/res app/src/main/AndroidManifest.xml
+          rm -rf app/proguard-rules.pro build.gradle.kts settings.gradle.kts gradle.properties
+          echo "✅ Cleaned old generated files"
+
       - name: Generate project source files
         run: |
           python3 - << 'PYEOF'
@@ -1356,9 +1362,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-v2-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
-            ${{ runner.os }}-gradle-
+            ${{ runner.os }}-gradle-v2-
 
       # ─────────────────────────────────────────────
       # STEP 5: Build debug APK
