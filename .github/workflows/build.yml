@@ -650,6 +650,7 @@ jobs:
 
               /**
                * Extract text from a PDF page using PDFBox TextStripper.
+               * Automatically converts legacy Nepali fonts (Preeti, Kantipur) to Unicode.
                * Returns empty string if page has no selectable text (scanned PDF).
                */
               suspend fun extractTextFromPage(pageIndex: Int): Result<String> =
@@ -659,8 +660,12 @@ jobs:
                           val stripper = PDFTextStripper().apply {
                               startPage = pageIndex + 1
                               endPage = pageIndex + 1
+                              // Sort by position for correct reading order
+                              sortByPosition = true
                           }
-                          stripper.getText(doc).trim()
+                          val rawText = stripper.getText(doc).trim()
+                          // Convert legacy Nepali font encoding to Unicode if needed
+                          com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(rawText)
                       }
                   }
 
@@ -736,9 +741,12 @@ jobs:
                       if (!preferDevanagari && text.length < 20) {
                           val devResult = devanagariRecognizer.process(image).await()
                           val devText = devResult.text.trim()
-                          if (devText.length > text.length) return@runCatching devText
+                          if (devText.length > text.length) {
+                              return@runCatching com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(devText)
+                          }
                       }
-                      text
+                      // Convert to Unicode (handles legacy font PDFs rendered as images)
+                      com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(text)
                   }
               }
 
@@ -764,49 +772,67 @@ jobs:
           import com.nareshkushmi.nkpdfreader.data.PdfRepository
           import kotlinx.coroutines.launch
 
-          sealed class UiState {
-              object Idle : UiState()
-              object Loading : UiState()
-              data class PageReady(val bitmap: Bitmap, val pageIndex: Int, val total: Int) : UiState()
-              data class TextReady(val text: String) : UiState()
-              data class Error(val message: String) : UiState()
+          // Page rendering state
+          sealed class PageState {
+              object Idle : PageState()
+              object Loading : PageState()
+              data class Ready(val bitmap: Bitmap, val pageIndex: Int, val total: Int) : PageState()
+              data class Error(val message: String) : PageState()
           }
+
+          // Text extraction state — completely separate from page navigation
+          sealed class TextState {
+              object Idle : TextState()
+              object Extracting : TextState()
+              data class Ready(val text: String, val pageIndex: Int) : TextState()
+              data class Error(val message: String) : TextState()
+          }
+
+          // Keep UiState as alias for backward compat with TTS/OCR button
+          typealias UiState = PageState
 
           class PdfViewModel(application: Application) : AndroidViewModel(application) {
 
               private val pdfRepo = PdfRepository(application)
               private val ocrRepo = OcrRepository()
 
-              private val _uiState = MutableLiveData<UiState>(UiState.Idle)
-              val uiState: LiveData<UiState> = _uiState
+              // Two independent LiveData streams — no interference
+              private val _pageState = MutableLiveData<PageState>(PageState.Idle)
+              val pageState: LiveData<PageState> = _pageState
+
+              private val _textState = MutableLiveData<TextState>(TextState.Idle)
+              val textState: LiveData<TextState> = _textState
+
+              // Keep uiState pointing to pageState for backward compat
+              val uiState: LiveData<PageState> = _pageState
 
               private val _currentPage = MutableLiveData(0)
               val currentPage: LiveData<Int> = _currentPage
 
               var totalPages = 0
                   private set
-
               var nightMode = false
               var zoomDpi = 150f
 
               fun openPdf(uri: Uri) {
                   viewModelScope.launch {
-                      _uiState.value = UiState.Loading
+                      _pageState.value = PageState.Loading
                       pdfRepo.openPdf(uri).fold(
                           onSuccess = { pageCount ->
                               totalPages = pageCount
                               _currentPage.value = 0
                               renderCurrentPage()
                           },
-                          onFailure = { _uiState.value = UiState.Error(it.message ?: "Failed to open PDF") }
+                          onFailure = {
+                              _pageState.value = PageState.Error(it.message ?: "Failed to open PDF")
+                          }
                       )
                   }
               }
 
               fun goToPage(index: Int) {
                   if (index < 0 || index >= totalPages) return
-                  // Guard: skip if already on this page and rendered
-                  if (_currentPage.value == index && _uiState.value is UiState.PageReady) return
+                  if (_currentPage.value == index && _pageState.value is PageState.Ready) return
                   _currentPage.value = index
                   renderCurrentPage()
               }
@@ -817,43 +843,73 @@ jobs:
               private fun renderCurrentPage() {
                   val page = _currentPage.value ?: return
                   viewModelScope.launch {
-                      _uiState.value = UiState.Loading
+                      _pageState.value = PageState.Loading
                       pdfRepo.renderPage(page, zoomDpi, nightMode).fold(
                           onSuccess = { bitmap ->
-                              _uiState.value = UiState.PageReady(bitmap, page, totalPages)
+                              _pageState.value = PageState.Ready(bitmap, page, totalPages)
+                              // Auto-extract text for accessibility after render
+                              extractTextForAccessibility(page)
                           },
-                          onFailure = { _uiState.value = UiState.Error(it.message ?: "Render error") }
+                          onFailure = {
+                              _pageState.value = PageState.Error(it.message ?: "Render error")
+                          }
                       )
                   }
               }
 
               /**
-               * Extract text: tries PDFBox first (fast, accurate for real text).
-               * Falls back to ML Kit OCR for scanned/image-based PDFs.
+               * Silent background text extraction for TalkBack/accessibility.
+               * Posts to _textState only — never touches _pageState,
+               * so it cannot trigger page navigation loop.
+               */
+              private fun extractTextForAccessibility(page: Int) {
+                  viewModelScope.launch {
+                      _textState.value = TextState.Extracting
+                      val pdfText = pdfRepo.extractTextFromPage(page).getOrNull()
+                      if (!pdfText.isNullOrBlank() && pdfText.length > 10) {
+                          _textState.value = TextState.Ready(pdfText, page)
+                          return@launch
+                      }
+                      // Fallback: OCR
+                      pdfRepo.renderPage(page, 200f, false).onSuccess { bitmap ->
+                          ocrRepo.extractTextFromBitmap(bitmap, false).onSuccess { text ->
+                              _textState.value = TextState.Ready(
+                                  text.ifBlank { "Page ${page + 1}" }, page
+                              )
+                          }
+                      }
+                  }
+              }
+
+              /**
+               * Manual text extraction for TTS read-aloud button.
+               * Posts result to _textState.
                */
               fun extractText(preferDevanagari: Boolean = false) {
                   val page = _currentPage.value ?: return
                   viewModelScope.launch {
-                      _uiState.value = UiState.Loading
-                      // 1) Try PDFBox text extraction
+                      _textState.value = TextState.Extracting
                       val pdfText = pdfRepo.extractTextFromPage(page).getOrNull()
                       if (!pdfText.isNullOrBlank() && pdfText.length > 30) {
-                          _uiState.value = UiState.TextReady(pdfText)
+                          _textState.value = TextState.Ready(pdfText, page)
                           return@launch
                       }
-                      // 2) Fallback: OCR on rendered bitmap
                       pdfRepo.renderPage(page, 200f, false).fold(
                           onSuccess = { bitmap ->
                               ocrRepo.extractTextFromBitmap(bitmap, preferDevanagari).fold(
                                   onSuccess = { text ->
-                                      _uiState.value = UiState.TextReady(
-                                          text.ifBlank { "No text found on this page." }
+                                      _textState.value = TextState.Ready(
+                                          text.ifBlank { "No text found on this page." }, page
                                       )
                                   },
-                                  onFailure = { _uiState.value = UiState.Error("OCR failed: ${it.message}") }
+                                  onFailure = {
+                                      _textState.value = TextState.Error("OCR failed: ${it.message}")
+                                  }
                               )
                           },
-                          onFailure = { _uiState.value = UiState.Error(it.message ?: "Render error") }
+                          onFailure = {
+                              _textState.value = TextState.Error(it.message ?: "Render error")
+                          }
                       )
                   }
               }
@@ -990,29 +1046,22 @@ jobs:
               }
 
               private fun observeViewModel() {
-                  viewModel.uiState.observe(this) { state ->
+                  // ── Stream 1: Page rendering (controls navigation) ──────────
+                  viewModel.pageState.observe(this) { state ->
                       when (state) {
-                          is UiState.Loading -> {
+                          is com.nareshkushmi.nkpdfreader.viewmodel.PageState.Loading -> {
                               binding.loadingOverlay.visibility = View.VISIBLE
                           }
-                          is UiState.PageReady -> {
+                          is com.nareshkushmi.nkpdfreader.viewmodel.PageState.Ready -> {
                               binding.loadingOverlay.visibility = View.GONE
-
-                              // Initialize adapter page count on first load
                               if (pdfAdapter.itemCount != state.total) {
                                   pdfAdapter.setTotalPages(state.total)
                               }
-
-                              // Push rendered bitmap into adapter cache
                               pdfAdapter.updatePage(state.pageIndex, state.bitmap)
-
-                              // Sync ViewPager2 position only when navigating via buttons
-                              // (not when user swiped — that would cause infinite loop)
                               val vpCurrent = binding.viewPager.currentItem
                               if (vpCurrent != state.pageIndex) {
                                   binding.viewPager.setCurrentItem(state.pageIndex, false)
                               }
-
                               val pageText = getString(
                                   com.nareshkushmi.nkpdfreader.R.string.page_of,
                                   state.pageIndex + 1,
@@ -1021,23 +1070,38 @@ jobs:
                               binding.tvPageInfo.text = pageText
                               binding.tvPageInfo.contentDescription = pageText
                               binding.tvPageInfo.announceForAccessibility(pageText)
-
-                              // ── Accessibility: extract text for TalkBack ──
-                              // Run silently in background; update ImageView contentDescription
-                              extractPageTextForAccessibility(state.pageIndex)
                           }
-                          is UiState.TextReady -> {
-                              binding.loadingOverlay.visibility = View.GONE
-                              binding.textPanel.visibility = View.VISIBLE
-                              binding.tvExtractedText.text = state.text
-                              binding.tvExtractedText.announceForAccessibility(
-                                  "Text extracted. " + state.text.take(100)
-                              )
-                              if (isReading) speakText(state.text)
-                          }
-                          is UiState.Error -> {
+                          is com.nareshkushmi.nkpdfreader.viewmodel.PageState.Error -> {
                               binding.loadingOverlay.visibility = View.GONE
                               Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+                          }
+                          else -> {}
+                      }
+                  }
+
+                  // ── Stream 2: Text extraction (TalkBack + TTS) ──────────────
+                  // Never calls goToPage() — loop impossible
+                  viewModel.textState.observe(this) { state ->
+                      when (state) {
+                          is com.nareshkushmi.nkpdfreader.viewmodel.TextState.Ready -> {
+                              // Set contentDescription on ImageView for TalkBack
+                              val rv = binding.viewPager.getChildAt(0)
+                                  as? androidx.recyclerview.widget.RecyclerView
+                              rv?.findViewHolderForAdapterPosition(state.pageIndex)
+                                  ?.itemView
+                                  ?.findViewById<android.widget.ImageView>(
+                                      com.nareshkushmi.nkpdfreader.R.id.ivPage
+                                  )
+                                  ?.contentDescription = state.text
+                              // TTS read-aloud if active
+                              if (isReading) {
+                                  binding.textPanel.visibility = View.VISIBLE
+                                  binding.tvExtractedText.text = state.text
+                                  speakText(state.text)
+                              }
+                          }
+                          is com.nareshkushmi.nkpdfreader.viewmodel.TextState.Error -> {
+                              if (isReading) Toast.makeText(this, state.message, Toast.LENGTH_SHORT).show()
                           }
                           else -> {}
                       }
@@ -1057,9 +1121,19 @@ jobs:
                           isReading = !isReading
                           if (isReading) {
                               item.title = getString(com.nareshkushmi.nkpdfreader.R.string.stop_reading)
-                              viewModel.extractText()
+                              // textState already has extracted text from background extraction
+                              val current = viewModel.textState.value
+                              if (current is com.nareshkushmi.nkpdfreader.viewmodel.TextState.Ready) {
+                                  binding.textPanel.visibility = View.VISIBLE
+                                  binding.tvExtractedText.text = current.text
+                                  speakText(current.text)
+                              } else {
+                                  // Trigger fresh extraction if not yet available
+                                  viewModel.extractText()
+                              }
                           } else {
                               item.title = getString(com.nareshkushmi.nkpdfreader.R.string.read_aloud)
+                              binding.textPanel.visibility = View.GONE
                               tts?.stop()
                           }
                           true
@@ -1098,33 +1172,7 @@ jobs:
                   tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "pdf_read")
               }
 
-              /**
-               * Extracts text from current page (PDFBox first, OCR fallback)
-               * and sets it as contentDescription on the page ImageView so
-               * TalkBack can read the actual PDF content.
-               */
-              private fun extractPageTextForAccessibility(pageIndex: Int) {
-                  // Observe next TextReady emission for accessibility only
-                  val observer = object : androidx.lifecycle.Observer<com.nareshkushmi.nkpdfreader.viewmodel.UiState> {
-                      override fun onChanged(state: com.nareshkushmi.nkpdfreader.viewmodel.UiState) {
-                          if (state is com.nareshkushmi.nkpdfreader.viewmodel.UiState.TextReady) {
-                              // Set contentDescription on the rendered page view
-                              val vh = (binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView)
-                                  ?.findViewHolderForAdapterPosition(pageIndex)
-                              val iv = vh?.itemView?.findViewById<android.widget.ImageView>(
-                                  com.nareshkushmi.nkpdfreader.R.id.ivPage
-                              )
-                              iv?.contentDescription = state.text.take(500)
-                              viewModel.uiState.removeObserver(this)
-                          }
-                      }
-                  }
-                  // Only run if not already reading aloud (avoid double extraction)
-                  if (!isReading) {
-                      viewModel.uiState.observeForever(observer)
-                      viewModel.extractText(preferDevanagari = false)
-                  }
-              }
+
 
               override fun onDestroy() {
                   tts?.stop()
@@ -1159,6 +1207,163 @@ jobs:
 
               override fun onInterrupt() {
                   // Required override
+              }
+          }
+          """.strip())
+
+          # ── NepaliTextConverter.kt ──────────────────────────────────────
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/util/NepaliTextConverter.kt", """
+          package com.nareshkushmi.nkpdfreader.util
+
+          /**
+           * Converts legacy Nepali font encodings (Preeti, Kantipur, Sagarmatha, etc.)
+           * to Unicode Devanagari.
+           *
+           * These fonts map ASCII characters to Devanagari glyphs visually,
+           * but store them as raw ASCII bytes. PDFBox extracts those raw bytes,
+           * so we must remap them to proper Unicode codepoints.
+           */
+          object NepaliTextConverter {
+
+              // ── Preeti font mapping (most common legacy Nepali font) ──────────
+              private val PREETI = mapOf(
+                  '!' to "\u0922\u094D", '"' to "\u091F\u094D\u091F",
+                  '#' to "\u0920\u094D", '$' to "\u0921\u094D",
+                  '%' to "\u091B\u094D", '&' to "\u0915\u094D\u0937",
+                  '\'' to "\u0924\u094D", '(' to "\u0926\u094D",
+                  ')' to "\u0927\u094D",  '*' to "\u0926\u094D\u0926\u094D",
+                  '+' to "\u0920", ',' to "\u002C",
+                  '-' to "\u0020",         '.' to "\u0964",
+                  '/' to "\u092F\u094D",  '0' to "\u0966",
+                  '1' to "\u0967",         '2' to "\u0968",
+                  '3' to "\u0969",         '4' to "\u096A",
+                  '5' to "\u096B",         '6' to "\u096C",
+                  '7' to "\u096D",         '8' to "\u096E",
+                  '9' to "\u096F",         ':' to "\u0903",
+                  ';' to "\u0020",         '<' to "\u0924\u094D\u0924",
+                  '=' to "\u0020",         '>' to "\u0924\u094D\u0924\u094D",
+                  '?' to "\u095F",         '@' to "\u094C",
+                  'A' to "\u093E",         'B' to "\u0935",
+                  'C' to "\u092E",         'D' to "\u093F",
+                  'E' to "\u0941",         'F' to "\u0930\u0947",
+                  'G' to "\u0947",         'H' to "\u0906",
+                  'I' to "\u0928\u094D",  'J' to "\u0935\u094D",
+                  'K' to "\u092A\u094D",  'L' to "\u0940",
+                  'M' to "\u0909",         'N' to "\u0942",
+                  'O' to "\u0902",         'P' to "\u0914",
+                  'Q' to "\u0094C",        'R' to "\u094D\u0930",
+                  'S' to "\u0935\u094D\u0935", 'T' to "\u0907",
+                  'U' to "\u0908",         'V' to "\u0039",
+                  'W' to "\u0913",         'X' to "\u0026",
+                  'Y' to "\u094B",         'Z' to "\u0936\u094D\u0930",
+                  '[' to "\u0921\u094D\u0921", '\\' to "\u0020",
+                  ']' to "\u0922\u094D\u0922", '^' to "\u0020",
+                  '_' to "\u2013",         '`' to "\u0020",
+                  'a' to "\u0915",         'b' to "\u0916",
+                  'c' to "\u0917",         'd' to "\u0918",
+                  'e' to "\u0919",         'f' to "\u091A",
+                  'g' to "\u091B",         'h' to "\u091C",
+                  'i' to "\u091D",         'j' to "\u091E",
+                  'k' to "\u091F",         'l' to "\u0920",
+                  'm' to "\u0921",         'n' to "\u0922",
+                  'o' to "\u0923",         'p' to "\u0924",
+                  'q' to "\u0925",         'r' to "\u0926",
+                  's' to "\u0927",         't' to "\u0928",
+                  'u' to "\u092A",         'v' to "\u092B",
+                  'w' to "\u092C",         'x' to "\u092D",
+                  'y' to "\u092E",         'z' to "\u092F",
+                  '{' to "\u0930",         '|' to "\u0932",
+                  '}' to "\u0935",         '~' to "\u0020",
+                  '\u00A4' to "\u0930\u094D", '\u00A7' to "\u0915\u094D",
+                  '\u00B0' to "\u0916\u094D", '\u00B1' to "\u0917\u094D",
+                  '\u00B4' to "\u091A\u094D", '\u00B5' to "\u091C\u094D",
+                  '\u00B6' to "\u091D\u094D", '\u00B7' to "\u091F\u094D",
+                  '\u00B8' to "\u0920\u094D", '\u00B9' to "\u0921\u094D",
+                  '\u00BA' to "\u0922\u094D", '\u00BB' to "\u0924\u094D",
+                  '\u00BC' to "\u0925\u094D", '\u00BD' to "\u0926\u094D",
+                  '\u00BE' to "\u0927\u094D", '\u00BF' to "\u0928\u094D",
+                  '\u00C0' to "\u092A\u094D", '\u00C1' to "\u092B\u094D",
+                  '\u00C2' to "\u092C\u094D", '\u00C3' to "\u092D\u094D",
+                  '\u00C4' to "\u092E\u094D", '\u00C5' to "\u092F\u094D",
+                  '\u00C7' to "\u0939\u094D", '\u00C8' to "\u0932\u094D",
+                  '\u00C9' to "\u0935\u094D", '\u00CA' to "\u0938\u094D",
+                  '\u00CB' to "\u0937\u094D", '\u00CC' to "\u0936\u094D",
+                  '\u00CD' to "\u0915\u094D\u0937\u094D"
+              )
+
+              // ── Kantipur font mapping ────────────────────────────────────────
+              private val KANTIPUR = mapOf(
+                  'a' to "\u0905", 'A' to "\u0906",
+                  'b' to "\u092C", 'B' to "\u092D",
+                  'c' to "\u091A", 'C' to "\u091B",
+                  'd' to "\u0926", 'D' to "\u0927",
+                  'e' to "\u0947", 'E' to "\u0948",
+                  'f' to "\u092B", 'F' to "\u092B\u094D",
+                  'g' to "\u0917", 'G' to "\u0918",
+                  'h' to "\u0939", 'H' to "\u0903",
+                  'i' to "\u093F", 'I' to "\u0940",
+                  'j' to "\u091C", 'J' to "\u091D",
+                  'k' to "\u0915", 'K' to "\u0916",
+                  'l' to "\u0932", 'L' to "\u0933",
+                  'm' to "\u092E", 'M' to "\u0902",
+                  'n' to "\u0928", 'N' to "\u0923",
+                  'o' to "\u094B", 'O' to "\u094C",
+                  'p' to "\u092A", 'P' to "\u092B",
+                  'q' to "\u094D", 'Q' to "\u0020",
+                  'r' to "\u0930", 'R' to "\u0931",
+                  's' to "\u0938", 'S' to "\u0937",
+                  't' to "\u0924", 'T' to "\u0925",
+                  'u' to "\u0941", 'U' to "\u0942",
+                  'v' to "\u0935", 'V' to "\u0936",
+                  'w' to "\u0920", 'W' to "\u0920",
+                  'x' to "\u0921", 'X' to "\u0922",
+                  'y' to "\u092F", 'Y' to "\u092F",
+                  'z' to "\u091C\u094D\u091E", 'Z' to "\u0020",
+                  '0' to "\u0966", '1' to "\u0967",
+                  '2' to "\u0968", '3' to "\u0969",
+                  '4' to "\u096A", '5' to "\u096B",
+                  '6' to "\u096C", '7' to "\u096D",
+                  '8' to "\u096E", '9' to "\u096F",
+                  '.' to "\u0964", ',' to ","
+              )
+
+              enum class FontType { UNICODE, PREETI, KANTIPUR, UNKNOWN }
+
+              /**
+               * Auto-detect font type from text sample.
+               * Unicode Devanagari chars are in range \u0900-\u097F.
+               */
+              fun detectFont(text: String): FontType {
+                  if (text.isBlank()) return FontType.UNKNOWN
+                  val devanagariCount = text.count { it.code in 0x0900..0x097F }
+                  val asciiCount = text.count { it.code in 0x20..0x7E }
+                  // If majority is already Devanagari Unicode, no conversion needed
+                  if (devanagariCount > asciiCount / 2) return FontType.UNICODE
+                  // Heuristic: Preeti uses specific ASCII chars heavily
+                  val preetiChars = text.count { it in "abcdefghijklmnopqrstuvwxyz" +
+                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
+                  return if (preetiChars > text.length / 3) FontType.PREETI else FontType.KANTIPUR
+              }
+
+              /**
+               * Convert text to Unicode. Auto-detects font if not specified.
+               */
+              fun toUnicode(text: String, fontType: FontType = FontType.UNKNOWN): String {
+                  val detected = if (fontType == FontType.UNKNOWN) detectFont(text) else fontType
+                  return when (detected) {
+                      FontType.UNICODE -> text
+                      FontType.PREETI -> convert(text, PREETI)
+                      FontType.KANTIPUR -> convert(text, KANTIPUR)
+                      FontType.UNKNOWN -> text
+                  }
+              }
+
+              private fun convert(text: String, map: Map<Char, String>): String {
+                  return buildString {
+                      for (ch in text) {
+                          append(map[ch] ?: ch.toString())
+                      }
+                  }
               }
           }
           """.strip())
