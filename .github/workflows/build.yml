@@ -255,7 +255,8 @@ jobs:
           write("app/src/main/res/values/themes.xml", """
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <style name="Theme.NKPdfReader" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+              <!-- NoActionBar: we use MaterialToolbar manually in layouts -->
+              <style name="Theme.NKPdfReader" parent="Theme.MaterialComponents.DayNight.NoActionBar">
                   <item name="colorPrimary">@color/purple_500</item>
                   <item name="colorPrimaryVariant">@color/purple_700</item>
                   <item name="colorOnPrimary">@color/white</item>
@@ -263,6 +264,8 @@ jobs:
                   <item name="colorSecondaryVariant">@color/teal_700</item>
                   <item name="colorOnSecondary">@color/black</item>
                   <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
               </style>
           </resources>
           """.strip())
