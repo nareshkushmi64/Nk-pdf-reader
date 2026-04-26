@@ -657,12 +657,10 @@ jobs:
                   withContext(Dispatchers.IO) {
                       runCatching {
                           val doc = pdDocument ?: error("PDF not opened")
-                          val stripper = PDFTextStripper().apply {
-                              startPage = pageIndex + 1
-                              endPage = pageIndex + 1
-                              // Sort by position for correct reading order
-                              sortByPosition = true
-                          }
+                          val stripper = PDFTextStripper()
+                          stripper.startPage = pageIndex + 1
+                          stripper.endPage = pageIndex + 1
+                          stripper.sortByPosition = true
                           val rawText = stripper.getText(doc).trim()
                           // Convert legacy Nepali font encoding to Unicode if needed
                           com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(rawText)
@@ -1212,161 +1210,10 @@ jobs:
           """.strip())
 
           # ── NepaliTextConverter.kt ──────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/util/NepaliTextConverter.kt", """
-          package com.nareshkushmi.nkpdfreader.util
-
-          /**
-           * Converts legacy Nepali font encodings (Preeti, Kantipur, Sagarmatha, etc.)
-           * to Unicode Devanagari.
-           *
-           * These fonts map ASCII characters to Devanagari glyphs visually,
-           * but store them as raw ASCII bytes. PDFBox extracts those raw bytes,
-           * so we must remap them to proper Unicode codepoints.
-           */
-          object NepaliTextConverter {
-
-              // ── Preeti font mapping (most common legacy Nepali font) ──────────
-              private val PREETI = mapOf(
-                  '!' to "\u0922\u094D", '"' to "\u091F\u094D\u091F",
-                  '#' to "\u0920\u094D", '$' to "\u0921\u094D",
-                  '%' to "\u091B\u094D", '&' to "\u0915\u094D\u0937",
-                  '\'' to "\u0924\u094D", '(' to "\u0926\u094D",
-                  ')' to "\u0927\u094D",  '*' to "\u0926\u094D\u0926\u094D",
-                  '+' to "\u0920", ',' to "\u002C",
-                  '-' to "\u0020",         '.' to "\u0964",
-                  '/' to "\u092F\u094D",  '0' to "\u0966",
-                  '1' to "\u0967",         '2' to "\u0968",
-                  '3' to "\u0969",         '4' to "\u096A",
-                  '5' to "\u096B",         '6' to "\u096C",
-                  '7' to "\u096D",         '8' to "\u096E",
-                  '9' to "\u096F",         ':' to "\u0903",
-                  ';' to "\u0020",         '<' to "\u0924\u094D\u0924",
-                  '=' to "\u0020",         '>' to "\u0924\u094D\u0924\u094D",
-                  '?' to "\u095F",         '@' to "\u094C",
-                  'A' to "\u093E",         'B' to "\u0935",
-                  'C' to "\u092E",         'D' to "\u093F",
-                  'E' to "\u0941",         'F' to "\u0930\u0947",
-                  'G' to "\u0947",         'H' to "\u0906",
-                  'I' to "\u0928\u094D",  'J' to "\u0935\u094D",
-                  'K' to "\u092A\u094D",  'L' to "\u0940",
-                  'M' to "\u0909",         'N' to "\u0942",
-                  'O' to "\u0902",         'P' to "\u0914",
-                  'Q' to "\u0094C",        'R' to "\u094D\u0930",
-                  'S' to "\u0935\u094D\u0935", 'T' to "\u0907",
-                  'U' to "\u0908",         'V' to "\u0039",
-                  'W' to "\u0913",         'X' to "\u0026",
-                  'Y' to "\u094B",         'Z' to "\u0936\u094D\u0930",
-                  '[' to "\u0921\u094D\u0921", '\\' to "\u0020",
-                  ']' to "\u0922\u094D\u0922", '^' to "\u0020",
-                  '_' to "\u2013",         '`' to "\u0020",
-                  'a' to "\u0915",         'b' to "\u0916",
-                  'c' to "\u0917",         'd' to "\u0918",
-                  'e' to "\u0919",         'f' to "\u091A",
-                  'g' to "\u091B",         'h' to "\u091C",
-                  'i' to "\u091D",         'j' to "\u091E",
-                  'k' to "\u091F",         'l' to "\u0920",
-                  'm' to "\u0921",         'n' to "\u0922",
-                  'o' to "\u0923",         'p' to "\u0924",
-                  'q' to "\u0925",         'r' to "\u0926",
-                  's' to "\u0927",         't' to "\u0928",
-                  'u' to "\u092A",         'v' to "\u092B",
-                  'w' to "\u092C",         'x' to "\u092D",
-                  'y' to "\u092E",         'z' to "\u092F",
-                  '{' to "\u0930",         '|' to "\u0932",
-                  '}' to "\u0935",         '~' to "\u0020",
-                  '\u00A4' to "\u0930\u094D", '\u00A7' to "\u0915\u094D",
-                  '\u00B0' to "\u0916\u094D", '\u00B1' to "\u0917\u094D",
-                  '\u00B4' to "\u091A\u094D", '\u00B5' to "\u091C\u094D",
-                  '\u00B6' to "\u091D\u094D", '\u00B7' to "\u091F\u094D",
-                  '\u00B8' to "\u0920\u094D", '\u00B9' to "\u0921\u094D",
-                  '\u00BA' to "\u0922\u094D", '\u00BB' to "\u0924\u094D",
-                  '\u00BC' to "\u0925\u094D", '\u00BD' to "\u0926\u094D",
-                  '\u00BE' to "\u0927\u094D", '\u00BF' to "\u0928\u094D",
-                  '\u00C0' to "\u092A\u094D", '\u00C1' to "\u092B\u094D",
-                  '\u00C2' to "\u092C\u094D", '\u00C3' to "\u092D\u094D",
-                  '\u00C4' to "\u092E\u094D", '\u00C5' to "\u092F\u094D",
-                  '\u00C7' to "\u0939\u094D", '\u00C8' to "\u0932\u094D",
-                  '\u00C9' to "\u0935\u094D", '\u00CA' to "\u0938\u094D",
-                  '\u00CB' to "\u0937\u094D", '\u00CC' to "\u0936\u094D",
-                  '\u00CD' to "\u0915\u094D\u0937\u094D"
-              )
-
-              // ── Kantipur font mapping ────────────────────────────────────────
-              private val KANTIPUR = mapOf(
-                  'a' to "\u0905", 'A' to "\u0906",
-                  'b' to "\u092C", 'B' to "\u092D",
-                  'c' to "\u091A", 'C' to "\u091B",
-                  'd' to "\u0926", 'D' to "\u0927",
-                  'e' to "\u0947", 'E' to "\u0948",
-                  'f' to "\u092B", 'F' to "\u092B\u094D",
-                  'g' to "\u0917", 'G' to "\u0918",
-                  'h' to "\u0939", 'H' to "\u0903",
-                  'i' to "\u093F", 'I' to "\u0940",
-                  'j' to "\u091C", 'J' to "\u091D",
-                  'k' to "\u0915", 'K' to "\u0916",
-                  'l' to "\u0932", 'L' to "\u0933",
-                  'm' to "\u092E", 'M' to "\u0902",
-                  'n' to "\u0928", 'N' to "\u0923",
-                  'o' to "\u094B", 'O' to "\u094C",
-                  'p' to "\u092A", 'P' to "\u092B",
-                  'q' to "\u094D", 'Q' to "\u0020",
-                  'r' to "\u0930", 'R' to "\u0931",
-                  's' to "\u0938", 'S' to "\u0937",
-                  't' to "\u0924", 'T' to "\u0925",
-                  'u' to "\u0941", 'U' to "\u0942",
-                  'v' to "\u0935", 'V' to "\u0936",
-                  'w' to "\u0920", 'W' to "\u0920",
-                  'x' to "\u0921", 'X' to "\u0922",
-                  'y' to "\u092F", 'Y' to "\u092F",
-                  'z' to "\u091C\u094D\u091E", 'Z' to "\u0020",
-                  '0' to "\u0966", '1' to "\u0967",
-                  '2' to "\u0968", '3' to "\u0969",
-                  '4' to "\u096A", '5' to "\u096B",
-                  '6' to "\u096C", '7' to "\u096D",
-                  '8' to "\u096E", '9' to "\u096F",
-                  '.' to "\u0964", ',' to ","
-              )
-
-              enum class FontType { UNICODE, PREETI, KANTIPUR, UNKNOWN }
-
-              /**
-               * Auto-detect font type from text sample.
-               * Unicode Devanagari chars are in range \u0900-\u097F.
-               */
-              fun detectFont(text: String): FontType {
-                  if (text.isBlank()) return FontType.UNKNOWN
-                  val devanagariCount = text.count { it.code in 0x0900..0x097F }
-                  val asciiCount = text.count { it.code in 0x20..0x7E }
-                  // If majority is already Devanagari Unicode, no conversion needed
-                  if (devanagariCount > asciiCount / 2) return FontType.UNICODE
-                  // Heuristic: Preeti uses specific ASCII chars heavily
-                  val preetiChars = text.count { it in "abcdefghijklmnopqrstuvwxyz" +
-                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
-                  return if (preetiChars > text.length / 3) FontType.PREETI else FontType.KANTIPUR
-              }
-
-              /**
-               * Convert text to Unicode. Auto-detects font if not specified.
-               */
-              fun toUnicode(text: String, fontType: FontType = FontType.UNKNOWN): String {
-                  val detected = if (fontType == FontType.UNKNOWN) detectFont(text) else fontType
-                  return when (detected) {
-                      FontType.UNICODE -> text
-                      FontType.PREETI -> convert(text, PREETI)
-                      FontType.KANTIPUR -> convert(text, KANTIPUR)
-                      FontType.UNKNOWN -> text
-                  }
-              }
-
-              private fun convert(text: String, map: Map<Char, String>): String {
-                  return buildString {
-                      for (ch in text) {
-                          append(map[ch] ?: ch.toString())
-                      }
-                  }
-              }
-          }
-          """.strip())
+          import base64 as _b64
+          _ntc_src = _b64.b64decode("cGFja2FnZSBjb20ubmFyZXNoa3VzaG1pLm5rcGRmcmVhZGVyLnV0aWwKCi8qKgogKiBDb252ZXJ0cyBsZWdhY3kgTmVwYWxpIGZvbnQgZW5jb2RpbmdzIChQcmVldGksIEthbnRpcHVyKSB0byBVbmljb2RlIERldmFuYWdhcmkuCiAqIFRoZXNlIGZvbnRzIG1hcCBBU0NJSSBieXRlcyB0byBEZXZhbmFnYXJpIGdseXBocyB2aXN1YWxseS4KICogUERGQm94IGV4dHJhY3RzIHJhdyBBU0NJSSwgc28gd2UgcmVtYXAgdG8gcHJvcGVyIFVuaWNvZGUgY29kZXBvaW50cy4KICovCm9iamVjdCBOZXBhbGlUZXh0Q29udmVydGVyIHsKCiAgICAvLyBQcmVldGkgZm9udDogQVNDSUkgY2hhciAtPiBVbmljb2RlIERldmFuYWdhcmkgc3RyaW5nCiAgICBwcml2YXRlIHZhbCBQUkVFVEk6IE1hcDxDaGFyLCBTdHJpbmc+ID0gbWFwT2YoCiAgICAgICAgJyEnIHRvICLgpKLgpY0iLCAnIicgdG8gIuCkn+CljeCknyIsCiAgICAgICAgJyMnIHRvICLgpKDgpY0iLCAnJCcgdG8gIuCkoeCljSIsCiAgICAgICAgJyUnIHRvICLgpJvgpY0iLCAnJicgdG8gIuCkleCljeCktyIsCiAgICAgICAgJycnIHRvICLgpKTgpY0iLCAnKCcgdG8gIuCkpuCljSIsCiAgICAgICAgJyknIHRvICLgpKfgpY0iLCAnKicgdG8gIuCkpuCljeCkpuCljSIsCiAgICAgICAgJysnIHRvICLgpKAiLCAnLCcgdG8gIiwiLAogICAgICAgICctJyB0byAiICIsICcuJyB0byAi4KWkIiwKICAgICAgICAnLycgdG8gIuCkr+CljSIsICcwJyB0byAi4KWmIiwKICAgICAgICAnMScgdG8gIuClpyIsICcyJyB0byAi4KWoIiwKICAgICAgICAnMycgdG8gIuClqSIsICc0JyB0byAi4KWqIiwKICAgICAgICAnNScgdG8gIuClqyIsICc2JyB0byAi4KWsIiwKICAgICAgICAnNycgdG8gIuClrSIsICc4JyB0byAi4KWuIiwKICAgICAgICAnOScgdG8gIuClryIsICc6JyB0byAi4KSDIiwKICAgICAgICAnPCcgdG8gIuCkpOCljeCkpCIsICc+JyB0byAi4KSk4KWN4KSk4KWNIiwKICAgICAgICAnPycgdG8gIuClnyIsICdAJyB0byAi4KWMIiwKICAgICAgICAnQScgdG8gIuCkviIsICdCJyB0byAi4KS1IiwKICAgICAgICAnQycgdG8gIuCkriIsICdEJyB0byAi4KS/IiwKICAgICAgICAnRScgdG8gIuClgSIsICdGJyB0byAi4KSw4KWHIiwKICAgICAgICAnRycgdG8gIuClhyIsICdIJyB0byAi4KSGIiwKICAgICAgICAnSScgdG8gIuCkqOCljSIsICdKJyB0byAi4KS14KWNIiwKICAgICAgICAnSycgdG8gIuCkquCljSIsICdMJyB0byAi4KWAIiwKICAgICAgICAnTScgdG8gIuCkiSIsICdOJyB0byAi4KWCIiwKICAgICAgICAnTycgdG8gIuCkgiIsICdQJyB0byAi4KSUIiwKICAgICAgICAnUicgdG8gIuCljeCksCIsICdTJyB0byAi4KS14KWN4KS1IiwKICAgICAgICAnVCcgdG8gIuCkhyIsICdVJyB0byAi4KSIIiwKICAgICAgICAnVycgdG8gIuCkkyIsICdZJyB0byAi4KWLIiwKICAgICAgICAnWicgdG8gIuCktuCljeCksCIsCiAgICAgICAgJ1snIHRvICLgpKHgpY3gpKEiLCAnXScgdG8gIuCkouCljeCkoiIsCiAgICAgICAgJ18nIHRvICLigJMiLAogICAgICAgICdhJyB0byAi4KSVIiwgJ2InIHRvICLgpJYiLAogICAgICAgICdjJyB0byAi4KSXIiwgJ2QnIHRvICLgpJgiLAogICAgICAgICdlJyB0byAi4KSZIiwgJ2YnIHRvICLgpJoiLAogICAgICAgICdnJyB0byAi4KSbIiwgJ2gnIHRvICLgpJwiLAogICAgICAgICdpJyB0byAi4KSdIiwgJ2onIHRvICLgpJ4iLAogICAgICAgICdrJyB0byAi4KSfIiwgJ2wnIHRvICLgpKAiLAogICAgICAgICdtJyB0byAi4KShIiwgJ24nIHRvICLgpKIiLAogICAgICAgICdvJyB0byAi4KSjIiwgJ3AnIHRvICLgpKQiLAogICAgICAgICdxJyB0byAi4KSlIiwgJ3InIHRvICLgpKYiLAogICAgICAgICdzJyB0byAi4KSnIiwgJ3QnIHRvICLgpKgiLAogICAgICAgICd1JyB0byAi4KSqIiwgJ3YnIHRvICLgpKsiLAogICAgICAgICd3JyB0byAi4KSsIiwgJ3gnIHRvICLgpK0iLAogICAgICAgICd5JyB0byAi4KSuIiwgJ3onIHRvICLgpK8iLAogICAgICAgICd7JyB0byAi4KSwIiwgJ3wnIHRvICLgpLIiLAogICAgICAgICd9JyB0byAi4KS1IgogICAgKQoKICAgIC8vIEthbnRpcHVyIGZvbnQgbWFwcGluZwogICAgcHJpdmF0ZSB2YWwgS0FOVElQVVI6IE1hcDxDaGFyLCBTdHJpbmc+ID0gbWFwT2YoCiAgICAgICAgJ2EnIHRvICLgpIUiLCAnQScgdG8gIuCkhiIsCiAgICAgICAgJ2InIHRvICLgpKwiLCAnQicgdG8gIuCkrSIsCiAgICAgICAgJ2MnIHRvICLgpJoiLCAnQycgdG8gIuCkmyIsCiAgICAgICAgJ2QnIHRvICLgpKYiLCAnRCcgdG8gIuCkpyIsCiAgICAgICAgJ2UnIHRvICLgpYciLCAnRScgdG8gIuCliCIsCiAgICAgICAgJ2YnIHRvICLgpKsiLCAnRicgdG8gIuCkq+CljSIsCiAgICAgICAgJ2cnIHRvICLgpJciLCAnRycgdG8gIuCkmCIsCiAgICAgICAgJ2gnIHRvICLgpLkiLCAnSCcgdG8gIuCkgyIsCiAgICAgICAgJ2knIHRvICLgpL8iLCAnSScgdG8gIuClgCIsCiAgICAgICAgJ2onIHRvICLgpJwiLCAnSicgdG8gIuCknSIsCiAgICAgICAgJ2snIHRvICLgpJUiLCAnSycgdG8gIuCkliIsCiAgICAgICAgJ2wnIHRvICLgpLIiLCAnTCcgdG8gIuCksyIsCiAgICAgICAgJ20nIHRvICLgpK4iLCAnTScgdG8gIuCkgiIsCiAgICAgICAgJ24nIHRvICLgpKgiLCAnTicgdG8gIuCkoyIsCiAgICAgICAgJ28nIHRvICLgpYsiLCAnTycgdG8gIuCljCIsCiAgICAgICAgJ3AnIHRvICLgpKoiLCAnUCcgdG8gIuCkqyIsCiAgICAgICAgJ3EnIHRvICLgpY0iLCAncicgdG8gIuCksCIsCiAgICAgICAgJ1InIHRvICLgpLEiLCAncycgdG8gIuCkuCIsCiAgICAgICAgJ1MnIHRvICLgpLciLCAndCcgdG8gIuCkpCIsCiAgICAgICAgJ1QnIHRvICLgpKUiLCAndScgdG8gIuClgSIsCiAgICAgICAgJ1UnIHRvICLgpYIiLCAndicgdG8gIuCktSIsCiAgICAgICAgJ1YnIHRvICLgpLYiLCAndycgdG8gIuCkoCIsCiAgICAgICAgJ3gnIHRvICLgpKEiLCAnWCcgdG8gIuCkoiIsCiAgICAgICAgJ3knIHRvICLgpK8iLCAnMCcgdG8gIuClpiIsCiAgICAgICAgJzEnIHRvICLgpaciLCAnMicgdG8gIuClqCIsCiAgICAgICAgJzMnIHRvICLgpakiLCAnNCcgdG8gIuClqiIsCiAgICAgICAgJzUnIHRvICLgpasiLCAnNicgdG8gIuClrCIsCiAgICAgICAgJzcnIHRvICLgpa0iLCAnOCcgdG8gIuClriIsCiAgICAgICAgJzknIHRvICLgpa8iLCAnLicgdG8gIuClpCIsCiAgICAgICAgJywnIHRvICIsIgogICAgKQoKICAgIGVudW0gY2xhc3MgRm9udFR5cGUgeyBVTklDT0RFLCBQUkVFVEksIEtBTlRJUFVSLCBVTktOT1dOIH0KCiAgICAvKiogQXV0by1kZXRlY3QgZm9udCBmcm9tIHRleHQgc2FtcGxlLiAqLwogICAgZnVuIGRldGVjdEZvbnQodGV4dDogU3RyaW5nKTogRm9udFR5cGUgewogICAgICAgIGlmICh0ZXh0LmlzQmxhbmsoKSkgcmV0dXJuIEZvbnRUeXBlLlVOS05PV04KICAgICAgICB2YWwgZGV2YW5hZ2FyaUNvdW50ID0gdGV4dC5jb3VudCB7IGl0LmNvZGUgaW4gMHgwOTAwLi4weDA5N0YgfQogICAgICAgIHZhbCB0b3RhbENvdW50ID0gdGV4dC5jb3VudCB7ICFpdC5pc1doaXRlc3BhY2UoKSB9CiAgICAgICAgaWYgKHRvdGFsQ291bnQgPT0gMCkgcmV0dXJuIEZvbnRUeXBlLlVOS05PV04KICAgICAgICAvLyBBbHJlYWR5IFVuaWNvZGUgaWYgbW9zdCBjaGFycyBhcmUgRGV2YW5hZ2FyaQogICAgICAgIGlmIChkZXZhbmFnYXJpQ291bnQgPiB0b3RhbENvdW50IC8gMikgcmV0dXJuIEZvbnRUeXBlLlVOSUNPREUKICAgICAgICAvLyBIZXVyaXN0aWMgZm9yIGxlZ2FjeSBmb250cwogICAgICAgIHZhbCBsb3dlckNvdW50ID0gdGV4dC5jb3VudCB7IGl0IGluICdhJy4uJ3onIH0KICAgICAgICByZXR1cm4gaWYgKGxvd2VyQ291bnQgPiB0b3RhbENvdW50IC8gNCkgRm9udFR5cGUuUFJFRVRJIGVsc2UgRm9udFR5cGUuS0FOVElQVVIKICAgIH0KCiAgICAvKiogQ29udmVydCB0ZXh0IHRvIFVuaWNvZGUuIEF1dG8tZGV0ZWN0cyBmb250IGlmIG5vdCBzcGVjaWZpZWQuICovCiAgICBmdW4gdG9Vbmljb2RlKHRleHQ6IFN0cmluZywgZm9udFR5cGU6IEZvbnRUeXBlID0gRm9udFR5cGUuVU5LTk9XTik6IFN0cmluZyB7CiAgICAgICAgdmFsIHR5cGUgPSBpZiAoZm9udFR5cGUgPT0gRm9udFR5cGUuVU5LTk9XTikgZGV0ZWN0Rm9udCh0ZXh0KSBlbHNlIGZvbnRUeXBlCiAgICAgICAgcmV0dXJuIHdoZW4gKHR5cGUpIHsKICAgICAgICAgICAgRm9udFR5cGUuVU5JQ09ERSAtPiB0ZXh0CiAgICAgICAgICAgIEZvbnRUeXBlLlBSRUVUSSAtPiBjb252ZXJ0KHRleHQsIFBSRUVUSSkKICAgICAgICAgICAgRm9udFR5cGUuS0FOVElQVVIgLT4gY29udmVydCh0ZXh0LCBLQU5USVBVUikKICAgICAgICAgICAgRm9udFR5cGUuVU5LTk9XTiAtPiB0ZXh0CiAgICAgICAgfQogICAgfQoKICAgIHByaXZhdGUgZnVuIGNvbnZlcnQodGV4dDogU3RyaW5nLCBtYXA6IE1hcDxDaGFyLCBTdHJpbmc+KTogU3RyaW5nID0KICAgICAgICBidWlsZFN0cmluZyB7IGZvciAoY2ggaW4gdGV4dCkgYXBwZW5kKG1hcFtjaF0gPzogY2gudG9TdHJpbmcoKSkgfQp9Cg==").decode("utf-8")
+          write("app/src/main/java/com/nareshkushmi/nkpdfreader/util/NepaliTextConverter.kt",
+                _ntc_src)
 
           # ── PdfPageAdapter.kt ───────────────────────────────────────────
           write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/PdfPageAdapter.kt", """
