@@ -418,11 +418,13 @@ jobs:
                   android:id="@+id/viewPager"
                   android:layout_width="match_parent"
                   android:layout_height="0dp"
+                  android:background="#E0E0E0"
                   android:importantForAccessibility="yes"
                   app:layout_constraintTop_toBottomOf="@id/appBar"
                   app:layout_constraintBottom_toTopOf="@id/bottomBar"
                   app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent" />
+                  app:layout_constraintEnd_toEndOf="parent"
+                  app:layout_constraintVertical_weight="1" />
 
               <!-- Loading overlay -->
               <LinearLayout
@@ -571,22 +573,24 @@ jobs:
           # ── item_pdf_page.xml ────────────────────────────────────────────
           write("app/src/main/res/layout/item_pdf_page.xml", """
           <?xml version="1.0" encoding="utf-8"?>
-          <FrameLayout
+          <androidx.core.widget.NestedScrollView
               xmlns:android="http://schemas.android.com/apk/res/android"
               android:layout_width="match_parent"
               android:layout_height="match_parent"
-              android:importantForAccessibility="yes">
+              android:fillViewport="true"
+              android:background="#F5F5F5">
 
               <ImageView
                   android:id="@+id/ivPage"
                   android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:scaleType="fitCenter"
+                  android:layout_height="wrap_content"
+                  android:scaleType="fitStart"
                   android:adjustViewBounds="true"
                   android:focusable="true"
-                  android:importantForAccessibility="yes" />
+                  android:importantForAccessibility="yes"
+                  android:padding="4dp" />
 
-          </FrameLayout>
+          </androidx.core.widget.NestedScrollView>
           """.strip())
 
           # ── PdfRepository.kt ─────────────────────────────────────────────
@@ -956,13 +960,13 @@ jobs:
 
               private fun setupViewPager() {
                   pdfAdapter = PdfPageAdapter()
+                  pdfAdapter.onPageVisible = { pageIndex -> viewModel.goToPage(pageIndex) }
                   binding.viewPager.adapter = pdfAdapter
                   binding.viewPager.isUserInputEnabled = true
+                  binding.viewPager.offscreenPageLimit = 1
                   binding.viewPager.registerOnPageChangeCallback(
                       object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
                           override fun onPageSelected(position: Int) {
-                              // Only trigger re-render if user swipes to a page
-                              // that hasn't been rendered yet
                               viewModel.goToPage(position)
                           }
                       }
@@ -983,10 +987,15 @@ jobs:
                           is UiState.PageReady -> {
                               binding.loadingOverlay.visibility = View.GONE
 
-                              // ── Key fix: push bitmap into adapter ──
+                              // Initialize adapter page count on first load
+                              if (pdfAdapter.itemCount != state.total) {
+                                  pdfAdapter.setTotalPages(state.total)
+                              }
+
+                              // Push rendered bitmap into adapter cache
                               pdfAdapter.updatePage(state.pageIndex, state.bitmap)
 
-                              // Sync ViewPager2 scroll position with current page
+                              // Sync ViewPager2 position
                               if (binding.viewPager.currentItem != state.pageIndex) {
                                   binding.viewPager.setCurrentItem(state.pageIndex, false)
                               }
@@ -1119,25 +1128,25 @@ jobs:
           import androidx.recyclerview.widget.RecyclerView
           import com.nareshkushmi.nkpdfreader.databinding.ItemPdfPageBinding
 
-          class PdfPageAdapter : RecyclerView.Adapter<PdfPageAdapter.PageViewHolder>() {
+          /**
+           * Adapter for ViewPager2.
+           * totalPages = total number of pages in the PDF.
+           * Pages are rendered on-demand and cached in [cache].
+           */
+          class PdfPageAdapter(private var totalPages: Int = 0) :
+              RecyclerView.Adapter<PdfPageAdapter.PageViewHolder>() {
 
-              private val pages = mutableListOf<Bitmap>()
+              private val cache = mutableMapOf<Int, Bitmap>()
+              var onPageVisible: ((Int) -> Unit)? = null
 
-              fun setPages(bitmaps: List<Bitmap>) {
-                  pages.clear()
-                  pages.addAll(bitmaps)
+              fun setTotalPages(count: Int) {
+                  totalPages = count
                   notifyDataSetChanged()
               }
 
               fun updatePage(index: Int, bitmap: Bitmap) {
-                  if (index < pages.size) {
-                      pages[index] = bitmap
-                      notifyItemChanged(index)
-                  } else {
-                      while (pages.size < index) pages.add(bitmap)
-                      pages.add(bitmap)
-                      notifyItemInserted(pages.size - 1)
-                  }
+                  cache[index] = bitmap
+                  notifyItemChanged(index)
               }
 
               inner class PageViewHolder(val binding: ItemPdfPageBinding) :
@@ -1151,14 +1160,21 @@ jobs:
               }
 
               override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
-                  holder.binding.ivPage.setImageBitmap(pages[position])
+                  val bmp = cache[position]
+                  if (bmp != null) {
+                      holder.binding.ivPage.setImageBitmap(bmp)
+                  } else {
+                      holder.binding.ivPage.setImageBitmap(null)
+                      // Request render for this page
+                      onPageVisible?.invoke(position)
+                  }
                   holder.binding.ivPage.contentDescription =
                       holder.itemView.context.getString(
                           com.nareshkushmi.nkpdfreader.R.string.content_desc_page, position + 1
                       )
               }
 
-              override fun getItemCount(): Int = pages.size
+              override fun getItemCount(): Int = totalPages
           }
           """.strip())
 
