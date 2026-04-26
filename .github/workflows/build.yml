@@ -805,6 +805,8 @@ jobs:
 
               fun goToPage(index: Int) {
                   if (index < 0 || index >= totalPages) return
+                  // Guard: skip if already on this page and rendered
+                  if (_currentPage.value == index && _uiState.value is UiState.PageReady) return
                   _currentPage.value = index
                   renderCurrentPage()
               }
@@ -960,14 +962,23 @@ jobs:
 
               private fun setupViewPager() {
                   pdfAdapter = PdfPageAdapter()
-                  pdfAdapter.onPageVisible = { pageIndex -> viewModel.goToPage(pageIndex) }
+                  // On-demand render: when ViewPager2 binds a page not yet cached
+                  pdfAdapter.onPageVisible = { pageIndex ->
+                      if (pageIndex != viewModel.currentPage.value) {
+                          viewModel.goToPage(pageIndex)
+                      }
+                  }
                   binding.viewPager.adapter = pdfAdapter
                   binding.viewPager.isUserInputEnabled = true
                   binding.viewPager.offscreenPageLimit = 1
                   binding.viewPager.registerOnPageChangeCallback(
                       object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
                           override fun onPageSelected(position: Int) {
-                              viewModel.goToPage(position)
+                              super.onPageSelected(position)
+                              // Guard: only render if this is a new page (breaks feedback loop)
+                              if (viewModel.currentPage.value != position) {
+                                  viewModel.goToPage(position)
+                              }
                           }
                       }
                   )
@@ -995,8 +1006,10 @@ jobs:
                               // Push rendered bitmap into adapter cache
                               pdfAdapter.updatePage(state.pageIndex, state.bitmap)
 
-                              // Sync ViewPager2 position
-                              if (binding.viewPager.currentItem != state.pageIndex) {
+                              // Sync ViewPager2 position only when navigating via buttons
+                              // (not when user swiped — that would cause infinite loop)
+                              val vpCurrent = binding.viewPager.currentItem
+                              if (vpCurrent != state.pageIndex) {
                                   binding.viewPager.setCurrentItem(state.pageIndex, false)
                               }
 
@@ -1008,6 +1021,10 @@ jobs:
                               binding.tvPageInfo.text = pageText
                               binding.tvPageInfo.contentDescription = pageText
                               binding.tvPageInfo.announceForAccessibility(pageText)
+
+                              // ── Accessibility: extract text for TalkBack ──
+                              // Run silently in background; update ImageView contentDescription
+                              extractPageTextForAccessibility(state.pageIndex)
                           }
                           is UiState.TextReady -> {
                               binding.loadingOverlay.visibility = View.GONE
@@ -1079,6 +1096,34 @@ jobs:
 
               private fun speakText(text: String) {
                   tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "pdf_read")
+              }
+
+              /**
+               * Extracts text from current page (PDFBox first, OCR fallback)
+               * and sets it as contentDescription on the page ImageView so
+               * TalkBack can read the actual PDF content.
+               */
+              private fun extractPageTextForAccessibility(pageIndex: Int) {
+                  // Observe next TextReady emission for accessibility only
+                  val observer = object : androidx.lifecycle.Observer<com.nareshkushmi.nkpdfreader.viewmodel.UiState> {
+                      override fun onChanged(state: com.nareshkushmi.nkpdfreader.viewmodel.UiState) {
+                          if (state is com.nareshkushmi.nkpdfreader.viewmodel.UiState.TextReady) {
+                              // Set contentDescription on the rendered page view
+                              val vh = (binding.viewPager.getChildAt(0) as? androidx.recyclerview.widget.RecyclerView)
+                                  ?.findViewHolderForAdapterPosition(pageIndex)
+                              val iv = vh?.itemView?.findViewById<android.widget.ImageView>(
+                                  com.nareshkushmi.nkpdfreader.R.id.ivPage
+                              )
+                              iv?.contentDescription = state.text.take(500)
+                              viewModel.uiState.removeObserver(this)
+                          }
+                      }
+                  }
+                  // Only run if not already reading aloud (avoid double extraction)
+                  if (!isReading) {
+                      viewModel.uiState.observeForever(observer)
+                      viewModel.extractText(preferDevanagari = false)
+                  }
               }
 
               override fun onDestroy() {
