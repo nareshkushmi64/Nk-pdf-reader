@@ -1,9 +1,7 @@
-name: Build Accessible PDF Reader APK
+name: Build NK Reader APK
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
@@ -26,1375 +24,1026 @@ jobs:
         with:
           python-version: '3.11'
 
-      # ─────────────────────────────────────────────
-      # STEP 1: Generate all project source files
-      # ─────────────────────────────────────────────
-      - name: Clean previously generated sources
+      - name: Generate project files
         run: |
-          rm -rf app/src/main/java app/src/main/res app/src/main/AndroidManifest.xml
-          rm -rf app/proguard-rules.pro build.gradle.kts settings.gradle.kts gradle.properties
-          echo "✅ Cleaned old generated files"
+          python3 - <<'PYEOF'
+import os, base64, textwrap
 
-      - name: Generate project source files
+def write(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+def writeb(path, b64):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(base64.b64decode(b64))
+
+ROOT      = "NKReader"
+PKG       = "com.nareshkushmi.nkreader"
+PKG_PATH  = PKG.replace('.', '/')
+SRC       = f"{ROOT}/app/src/main/java/{PKG_PATH}"
+RES       = f"{ROOT}/app/src/main/res"
+
+# ─── settings.gradle.kts ───────────────────────────────────────────────────
+write(f"{ROOT}/settings.gradle.kts", """\
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "NK Reader"
+include(":app")
+""")
+
+# ─── root build.gradle.kts ─────────────────────────────────────────────────
+write(f"{ROOT}/build.gradle.kts", """\
+plugins {
+    id("com.android.application") version "8.2.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+}
+""")
+
+# ─── gradle.properties ─────────────────────────────────────────────────────
+write(f"{ROOT}/gradle.properties", """\
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+android.useAndroidX=true
+kotlin.code.style=official
+android.nonTransitiveRClass=true
+""")
+
+# ─── app/build.gradle.kts ──────────────────────────────────────────────────
+write(f"{ROOT}/app/build.gradle.kts", """\
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.nareshkushmi.nkreader"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.nareshkushmi.nkreader"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.8"
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    implementation(composeBom)
+
+    // Compose UI
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // AndroidX Core
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+
+    // ML Kit OCR
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+    implementation("com.google.mlkit:text-recognition-devanagari:16.0.0")
+
+    // OpenCV
+    implementation("org.opencv:opencv:4.9.0")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // DataStore
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // Coil (image loading)
+    implementation("io.coil-kt:coil-compose:2.5.0")
+}
+""")
+
+# ─── proguard-rules.pro ────────────────────────────────────────────────────
+write(f"{ROOT}/app/proguard-rules.pro", "# NK Reader ProGuard Rules\n-keep class com.nareshkushmi.nkreader.** { *; }\n")
+
+# ─── AndroidManifest.xml ───────────────────────────────────────────────────
+write(f"{ROOT}/app/src/main/AndroidManifest.xml", """\
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <application
+        android:name=".NKReaderApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.NKReader">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.NKReader">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- PDF open support -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <!-- Image open support -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Accessibility Service -->
+        <service
+            android:name=".accessibility.NKReaderAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+    </application>
+</manifest>
+""")
+
+# ─── NKReaderApp.kt ────────────────────────────────────────────────────────
+write(f"{SRC}/NKReaderApp.kt", """\
+package com.nareshkushmi.nkreader
+
+import android.app.Application
+import org.opencv.android.OpenCVLoader
+
+class NKReaderApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        OpenCVLoader.initLocal()
+    }
+}
+""")
+
+# ─── MainActivity.kt ───────────────────────────────────────────────────────
+write(f"{SRC}/MainActivity.kt", """\
+package com.nareshkushmi.nkreader
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import com.nareshkushmi.nkreader.ui.NKReaderNavHost
+import com.nareshkushmi.nkreader.ui.theme.NKReaderTheme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            NKReaderTheme {
+                NKReaderNavHost()
+            }
+        }
+    }
+}
+""")
+
+# ─── Theme ─────────────────────────────────────────────────────────────────
+write(f"{SRC}/ui/theme/Theme.kt", """\
+package com.nareshkushmi.nkreader.ui.theme
+
+import android.app.Activity
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF90CAF9),
+    onPrimary = Color(0xFF003060),
+    primaryContainer = Color(0xFF004887),
+    secondary = Color(0xFFB0BEC5),
+    background = Color(0xFF121212),
+    surface = Color(0xFF1E1E1E),
+)
+
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF1565C0),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD0E4FF),
+    secondary = Color(0xFF546E7A),
+    background = Color(0xFFF8F9FA),
+    surface = Color.White,
+)
+
+@Composable
+fun NKReaderTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColors
+        else -> LightColors
+    }
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as Activity).window
+            window.statusBarColor = colorScheme.primary.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+        }
+    }
+    MaterialTheme(colorScheme = colorScheme, content = content)
+}
+""")
+
+# ─── NavHost ───────────────────────────────────────────────────────────────
+write(f"{SRC}/ui/NKReaderNavHost.kt", """\
+package com.nareshkushmi.nkreader.ui
+
+import androidx.compose.runtime.Composable
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.nareshkushmi.nkreader.ui.screen.HomeScreen
+import com.nareshkushmi.nkreader.ui.screen.ReaderScreen
+import com.nareshkushmi.nkreader.ui.screen.SettingsScreen
+
+@Composable
+fun NKReaderNavHost() {
+    val navController = rememberNavController()
+    NavHost(navController = navController, startDestination = "home") {
+        composable("home")     { HomeScreen(navController) }
+        composable("reader")   { ReaderScreen(navController) }
+        composable("settings") { SettingsScreen(navController) }
+    }
+}
+""")
+
+# ─── HomeScreen ────────────────────────────────────────────────────────────
+write(f"{SRC}/ui/screen/HomeScreen.kt", """\
+package com.nareshkushmi.nkreader.ui.screen
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import com.nareshkushmi.nkreader.R
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(navController: NavController) {
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+
+    val pdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let { selectedUri = it } }
+
+    val imageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let { selectedUri = it } }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = {
+                    IconButton(
+                        onClick = { navController.navigate("settings") },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Settings खोल्नुहोस्"
+                        }
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text(
+                    "फाइल छान्नुहोस्",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() }
+                )
+            }
+            item {
+                // PDF Button
+                FilledTonalButton(
+                    onClick = { pdfLauncher.launch("application/pdf") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "PDF फाइल छान्नुहोस्" }
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("PDF खोल्नुहोस्")
+                }
+            }
+            item {
+                // Image Button
+                FilledTonalButton(
+                    onClick = { imageLauncher.launch("image/*") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "Image फाइल छान्नुहोस्" }
+                ) {
+                    Icon(Icons.Default.Image, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Image खोल्नुहोस्")
+                }
+            }
+            item {
+                // Camera Button
+                FilledTonalButton(
+                    onClick = { /* Camera intent */ },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "Camera बाट scan गर्नुहोस्" }
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Camera बाट Scan")
+                }
+            }
+            selectedUri?.let {
+                item {
+                    Divider()
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { navController.navigate("reader") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "Text पढ्न सुरु गर्नुहोस्" }
+                    ) {
+                        Icon(Icons.Default.DocumentScanner, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("OCR सुरु गर्नुहोस्")
+                    }
+                }
+            }
+        }
+    }
+}
+""")
+
+# ─── ReaderScreen ──────────────────────────────────────────────────────────
+write(f"{SRC}/ui/screen/ReaderScreen.kt", """\
+package com.nareshkushmi.nkreader.ui.screen
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReaderScreen(navController: NavController) {
+    val scrollState = rememberScrollState()
+    var isProcessing by remember { mutableStateOf(false) }
+    var extractedText by remember { mutableStateOf("") }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("NK Reader") },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.semantics {
+                            contentDescription = "पछि जानुहोस्"
+                        }
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = null)
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { /* Copy text */ },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Text copy गर्नुहोस्"
+                        }
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    }
+                    IconButton(
+                        onClick = { /* Share text */ },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Text share गर्नुहोस्"
+                        }
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            if (isProcessing) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.semantics {
+                            contentDescription = "OCR processing भइरहेको छ"
+                        }
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("Text निकाल्दै...")
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(16.dp)
+                ) {
+                    if (extractedText.isEmpty()) {
+                        Text(
+                            "OCR सुरु भएपछि यहाँ text देखिनेछ।",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.semantics {
+                                contentDescription = "OCR result यहाँ देखिनेछ"
+                            }
+                        )
+                    } else {
+                        SelectionContainer {
+                            Text(
+                                text = extractedText,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "निकालिएको text: $extractedText"
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+""")
+
+# ─── SettingsScreen ────────────────────────────────────────────────────────
+write(f"{SRC}/ui/screen/SettingsScreen.kt", """\
+package com.nareshkushmi.nkreader.ui.screen
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(navController: NavController) {
+    var devanagariEnabled by remember { mutableStateOf(true) }
+    var highQualityOcr by remember { mutableStateOf(false) }
+    var darkTheme by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.semantics {
+                            contentDescription = "पछि जानुहोस्"
+                        }
+                    ) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = null)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item {
+                Text(
+                    "OCR Settings",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() }
+                )
+            }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        // Devanagari toggle
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics(mergeDescendants = true) {},
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("देवनागरी OCR", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "नेपाली/हिन्दी text detect गर्न",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = devanagariEnabled,
+                                onCheckedChange = { devanagariEnabled = it },
+                                modifier = Modifier.semantics {
+                                    contentDescription = if (devanagariEnabled)
+                                        "देवनागरी OCR चालू छ" else "देवनागरी OCR बन्द छ"
+                                }
+                            )
+                        }
+                        Divider(modifier = Modifier.padding(vertical = 12.dp))
+                        // High quality toggle
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics(mergeDescendants = true) {},
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("High Quality Mode", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Slow तर बढी accurate",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = highQualityOcr,
+                                onCheckedChange = { highQualityOcr = it },
+                                modifier = Modifier.semantics {
+                                    contentDescription = if (highQualityOcr)
+                                        "High quality mode चालू छ" else "High quality mode बन्द छ"
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Appearance",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading() }
+                )
+            }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .semantics(mergeDescendants = true) {},
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Dark Theme", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "अँध्यारो रंग प्रयोग गर्नुहोस्",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = darkTheme,
+                            onCheckedChange = { darkTheme = it },
+                            modifier = Modifier.semantics {
+                                contentDescription = if (darkTheme)
+                                    "Dark theme चालू छ" else "Dark theme बन्द छ"
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+""")
+
+# ─── OCR Engine ────────────────────────────────────────────────────────────
+write(f"{SRC}/ocr/OcrEngine.kt", """\
+package com.nareshkushmi.nkreader.ocr
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
+class OcrEngine(private val context: Context) {
+
+    private val recognizer = TextRecognition.getClient(
+        DevanagariTextRecognizerOptions.Builder().build()
+    )
+
+    // Image OCR
+    fun recognizeImage(uri: Uri): Flow<OcrResult> = flow {
+        emit(OcrResult.Loading)
+        try {
+            val bitmap = android.provider.MediaStore.Images.Media
+                .getBitmap(context.contentResolver, uri)
+            val text = performOcr(bitmap)
+            emit(OcrResult.Success(text))
+        } catch (e: Exception) {
+            emit(OcrResult.Error(e.message ?: "OCR failed"))
+        }
+    }
+
+    // PDF OCR (page by page)
+    fun recognizePdf(uri: Uri): Flow<OcrResult> = flow {
+        emit(OcrResult.Loading)
+        try {
+            val fd = context.contentResolver.openFileDescriptor(uri, "r")
+                ?: throw Exception("File खोल्न सकिएन")
+            val renderer = PdfRenderer(fd)
+            val sb = StringBuilder()
+
+            for (i in 0 until renderer.pageCount) {
+                emit(OcrResult.Progress(i + 1, renderer.pageCount))
+                val page = renderer.openPage(i)
+                val bitmap = Bitmap.createBitmap(
+                    (page.width * 1.5).toInt(),
+                    (page.height * 1.5).toInt(),
+                    Bitmap.Config.ARGB_8888
+                )
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                val pageText = performOcr(bitmap)
+                sb.appendLine("--- Page ${i + 1} ---")
+                sb.appendLine(pageText)
+                bitmap.recycle()
+            }
+
+            renderer.close()
+            fd.close()
+            emit(OcrResult.Success(sb.toString()))
+        } catch (e: Exception) {
+            emit(OcrResult.Error(e.message ?: "PDF OCR failed"))
+        }
+    }
+
+    private suspend fun performOcr(bitmap: Bitmap): String =
+        suspendCancellableCoroutine { cont ->
+            val image = InputImage.fromBitmap(bitmap, 0)
+            recognizer.process(image)
+                .addOnSuccessListener { cont.resume(it.text) }
+                .addOnFailureListener { cont.resume("") }
+        }
+}
+
+sealed class OcrResult {
+    object Loading : OcrResult()
+    data class Progress(val current: Int, val total: Int) : OcrResult()
+    data class Success(val text: String) : OcrResult()
+    data class Error(val message: String) : OcrResult()
+}
+""")
+
+# ─── Table Extractor ───────────────────────────────────────────────────────
+write(f"{SRC}/ocr/TableExtractor.kt", """\
+package com.nareshkushmi.nkreader.ocr
+
+import android.content.Context
+import android.graphics.Bitmap
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.opencv.android.Utils
+import org.opencv.core.*
+import org.opencv.imgproc.Imgproc
+import kotlin.coroutines.resume
+
+class TableExtractor(private val context: Context) {
+
+    private val recognizer = TextRecognition.getClient(
+        DevanagariTextRecognizerOptions.Builder().build()
+    )
+
+    fun detectTableCells(bitmap: Bitmap): List<Rect> {
+        val src = Mat()
+        Utils.bitmapToMat(bitmap, src)
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY)
+        val thresh = Mat()
+        Imgproc.threshold(gray, thresh, 150.0, 255.0, Imgproc.THRESH_BINARY_INV)
+
+        val horizontal = Mat()
+        val hKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(bitmap.width / 30.0, 1.0)
+        )
+        Imgproc.morphologyEx(thresh, horizontal, Imgproc.MORPH_OPEN, hKernel)
+
+        val vertical = Mat()
+        val vKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(1.0, bitmap.height / 30.0)
+        )
+        Imgproc.morphologyEx(thresh, vertical, Imgproc.MORPH_OPEN, vKernel)
+
+        val combined = Mat()
+        Core.add(horizontal, vertical, combined)
+
+        val contours = mutableListOf<MatOfPoint>()
+        Imgproc.findContours(
+            combined, contours, Mat(),
+            Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE
+        )
+
+        return contours
+            .map { Imgproc.boundingRect(it) }
+            .filter { it.width > 30 && it.height > 15 }
+            .sortedWith(compareBy({ it.y }, { it.x }))
+    }
+
+    fun groupCellsIntoRows(cells: List<Rect>): List<List<Rect>> {
+        val rows = mutableListOf<MutableList<Rect>>()
+        for (cell in cells) {
+            val row = rows.find { kotlin.math.abs(it.first().y - cell.y) < 10 }
+            if (row != null) row.add(cell)
+            else rows.add(mutableListOf(cell))
+        }
+        return rows.map { it.sortedBy { c -> c.x } }
+    }
+
+    suspend fun extractTable(bitmap: Bitmap): List<List<String>> {
+        val cells = detectTableCells(bitmap)
+        val rows = groupCellsIntoRows(cells)
+        return rows.map { row -> row.map { cell -> ocrCell(bitmap, cell) } }
+    }
+
+    private suspend fun ocrCell(bitmap: Bitmap, cell: Rect): String =
+        suspendCancellableCoroutine { cont ->
+            val cropped = Bitmap.createBitmap(bitmap, cell.x, cell.y, cell.width, cell.height)
+            val image = InputImage.fromBitmap(cropped, 0)
+            recognizer.process(image)
+                .addOnSuccessListener { cont.resume(it.text.trim()) }
+                .addOnFailureListener { cont.resume("") }
+        }
+
+    fun tableToString(table: List<List<String>>): String =
+        table.joinToString("\\n") { row -> row.joinToString(" | ") }
+
+    fun tableToCsv(table: List<List<String>>): String =
+        table.joinToString("\\n") { row ->
+            row.joinToString(",") { cell -> "\\"${cell.replace("\\"", "\\"\\"")}\\"" }
+        }
+}
+""")
+
+# ─── Accessibility Service ─────────────────────────────────────────────────
+write(f"{SRC}/accessibility/NKReaderAccessibilityService.kt", """\
+package com.nareshkushmi.nkreader.accessibility
+
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.view.accessibility.AccessibilityEvent
+
+class NKReaderAccessibilityService : AccessibilityService() {
+
+    override fun onServiceConnected() {
+        serviceInfo = AccessibilityServiceInfo().apply {
+            eventTypes = AccessibilityEvent.TYPE_VIEW_FOCUSED or
+                         AccessibilityEvent.TYPE_VIEW_CLICKED
+            feedbackType = AccessibilityServiceInfo.FEEDBACK_SPOKEN
+            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+            notificationTimeout = 100
+        }
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Future: screen reading logic
+    }
+
+    override fun onInterrupt() {}
+}
+""")
+
+# ─── strings.xml ───────────────────────────────────────────────────────────
+write(f"{RES}/values/strings.xml", """\
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NK Reader</string>
+    <string name="accessibility_service_label">NK Reader Accessibility</string>
+    <string name="accessibility_service_description">NK Reader को Accessibility सुविधा सक्षम गर्दछ</string>
+</resources>
+""")
+
+# ─── themes.xml ────────────────────────────────────────────────────────────
+write(f"{RES}/values/themes.xml", """\
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NKReader" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
+""")
+
+# ─── accessibility_service_config.xml ─────────────────────────────────────
+write(f"{RES}/xml/accessibility_service_config.xml", """\
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/accessibility_service_description"
+    android:accessibilityEventTypes="typeViewFocused|typeViewClicked"
+    android:accessibilityFeedbackType="feedbackSpoken"
+    android:notificationTimeout="100"
+    android:accessibilityFlags="flagReportViewIds"
+    android:canRetrieveWindowContent="true" />
+""")
+
+# ─── ic_launcher placeholder ───────────────────────────────────────────────
+for dpi in ["mdpi","hdpi","xhdpi","xxhdpi","xxxhdpi"]:
+    write(f"{RES}/mipmap-{dpi}/ic_launcher.xml", """\
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@android:color/holo_blue_dark"/>
+    <foreground android:drawable="@android:color/white"/>
+</adaptive-icon>
+""")
+    write(f"{RES}/mipmap-{dpi}/ic_launcher_round.xml", """\
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@android:color/holo_blue_dark"/>
+    <foreground android:drawable="@android:color/white"/>
+</adaptive-icon>
+""")
+
+print("✅ सबै files generate भयो!")
+PYEOF
+
+      - name: Setup Gradle wrapper
         run: |
-          python3 - << 'PYEOF'
-          import os, base64, textwrap
-
-          def write(path, content):
-              parent = os.path.dirname(path)
-              if parent:
-                  os.makedirs(parent, exist_ok=True)
-              with open(path, 'w', encoding='utf-8') as f:
-                  f.write(content)
-              print(f"  ✅ {path}")
-
-          # ── settings.gradle ──────────────────────────────────────────────
-          write("settings.gradle.kts", """
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "NKPdfReader"
-          include(":app")
-          """.strip())
-
-          # ── root build.gradle ────────────────────────────────────────────
-          write("build.gradle.kts", """
-          plugins {
-              id("com.android.application") version "8.3.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.23" apply false
-          }
-          """.strip())
-
-          # ── gradle.properties ────────────────────────────────────────────
-          write("gradle.properties", """
-          android.useAndroidX=true
-          android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
-          kotlin.code.style=official
-          """.strip())
-
-          # ── app/build.gradle ─────────────────────────────────────────────
-          write("app/build.gradle.kts", """
-          plugins {
-              id("com.android.application")
-              id("org.jetbrains.kotlin.android")
-          }
-
-          android {
-              namespace = "com.nareshkushmi.nkpdfreader"
-              compileSdk = 34
-
-              defaultConfig {
-                  applicationId = "com.nareshkushmi.nkpdfreader"
-                  minSdk = 26
-                  targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0.0"
-              }
-
-              buildTypes {
-                  release {
-                      isMinifyEnabled = false
-                      proguardFiles(
-                          getDefaultProguardFile("proguard-android-optimize.txt"),
-                          "proguard-rules.pro"
-                      )
-                  }
-              }
-
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-
-              kotlinOptions { jvmTarget = "17" }
-
-              buildFeatures { viewBinding = true }
-
-              packaging {
-                  resources {
-                      excludes += "/META-INF/{AL2.0,LGPL2.1}"
-                      excludes += "META-INF/DEPENDENCIES"
-                  }
-              }
-          }
-
-          dependencies {
-              // AndroidX core
-              implementation("androidx.core:core-ktx:1.13.1")
-              implementation("androidx.appcompat:appcompat:1.7.0")
-              implementation("com.google.android.material:material:1.12.0")
-              implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-              implementation("androidx.recyclerview:recyclerview:1.3.2")
-              implementation("androidx.viewpager2:viewpager2:1.1.0")
-              implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
-              implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.2")
-              implementation("androidx.activity:activity-ktx:1.9.0")
-              implementation("androidx.fragment:fragment-ktx:1.8.0")
-
-              // Apache PDFBox Android port
-              implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-
-              // Google ML Kit OCR
-              implementation("com.google.mlkit:text-recognition:16.0.0")
-              implementation("com.google.mlkit:text-recognition-devanagari:16.0.0")
-
-              // Coroutines
-              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
-              // Required for ML Kit Task.await() extension
-              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0")
-          }
-          """.strip())
-
-          # ── AndroidManifest.xml ──────────────────────────────────────────
-          write("app/src/main/AndroidManifest.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-                  android:maxSdkVersion="32" />
-              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-              <!-- For Android 13+ document access -->
-              <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
-
-              <application
-                  android:allowBackup="true"
-                  android:icon="@mipmap/ic_launcher"
-                  android:label="@string/app_name"
-                  android:roundIcon="@mipmap/ic_launcher_round"
-                  android:supportsRtl="true"
-                  android:theme="@style/Theme.NKPdfReader"
-                  android:largeHeap="true">
-
-                  <activity
-                      android:name=".ui.MainActivity"
-                      android:exported="true"
-                      android:label="@string/app_name"
-                      android:windowSoftInputMode="adjustResize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                      <!-- Open PDF files directly -->
-                      <intent-filter>
-                          <action android:name="android.intent.action.VIEW" />
-                          <category android:name="android.intent.category.DEFAULT" />
-                          <data android:mimeType="application/pdf" />
-                      </intent-filter>
-                  </activity>
-
-                  <activity
-                      android:name=".ui.PdfViewerActivity"
-                      android:exported="false"
-                      android:label="@string/pdf_viewer"
-                      android:windowSoftInputMode="adjustResize" />
-
-                  <!-- Accessibility Service -->
-                  <service
-                      android:name=".accessibility.PdfAccessibilityService"
-                      android:exported="true"
-                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-                      android:label="@string/accessibility_service_label">
-                      <intent-filter>
-                          <action android:name="android.accessibilityservice.AccessibilityService" />
-                      </intent-filter>
-                      <meta-data
-                          android:name="android.accessibilityservice"
-                          android:resource="@xml/accessibility_service_config" />
-                  </service>
-
-                  <provider
-                      android:name="androidx.core.content.FileProvider"
-                      android:authorities="${applicationId}.fileprovider"
-                      android:exported="false"
-                      android:grantUriPermissions="true">
-                      <meta-data
-                          android:name="android.support.FILE_PROVIDER_PATHS"
-                          android:resource="@xml/file_paths" />
-                  </provider>
-
-              </application>
-          </manifest>
-          """.strip())
-
-          # ── strings.xml ──────────────────────────────────────────────────
-          write("app/src/main/res/values/strings.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">NK PDF Reader</string>
-              <string name="pdf_viewer">PDF Viewer</string>
-              <string name="accessibility_service_label">NK PDF Reader Accessibility</string>
-              <string name="open_pdf">Open PDF</string>
-              <string name="read_aloud">Read Aloud</string>
-              <string name="stop_reading">Stop Reading</string>
-              <string name="ocr_extract">Extract Text (OCR)</string>
-              <string name="page_of">Page %1$d of %2$d</string>
-              <string name="zoom_in">Zoom In</string>
-              <string name="zoom_out">Zoom Out</string>
-              <string name="night_mode">Night Mode</string>
-              <string name="font_size">Font Size</string>
-              <string name="loading_pdf">Loading PDF...</string>
-              <string name="ocr_processing">Extracting text with OCR...</string>
-              <string name="tts_not_available">Text-to-Speech not available on this device</string>
-              <string name="content_desc_page">PDF page %1$d</string>
-              <string name="content_desc_prev_page">Previous page</string>
-              <string name="content_desc_next_page">Next page</string>
-              <string name="content_desc_read_aloud">Read page aloud</string>
-              <string name="permission_rationale">Storage permission needed to open PDF files</string>
-              <string name="open_file_manager">Open File Manager</string>
-          </resources>
-          """.strip())
-
-          # ── themes.xml ───────────────────────────────────────────────────
-          write("app/src/main/res/values/themes.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <!-- NoActionBar: we use MaterialToolbar manually in layouts -->
-              <style name="Theme.NKPdfReader" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-                  <item name="colorPrimary">@color/purple_500</item>
-                  <item name="colorPrimaryVariant">@color/purple_700</item>
-                  <item name="colorOnPrimary">@color/white</item>
-                  <item name="colorSecondary">@color/teal_200</item>
-                  <item name="colorSecondaryVariant">@color/teal_700</item>
-                  <item name="colorOnSecondary">@color/black</item>
-                  <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-                  <item name="windowActionBar">false</item>
-                  <item name="windowNoTitle">true</item>
-              </style>
-          </resources>
-          """.strip())
-
-          # ── colors.xml ───────────────────────────────────────────────────
-          write("app/src/main/res/values/colors.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <color name="purple_200">#FFBB86FC</color>
-              <color name="purple_500">#FF6200EE</color>
-              <color name="purple_700">#FF3700B3</color>
-              <color name="teal_200">#FF03DAC5</color>
-              <color name="teal_700">#FF018786</color>
-              <color name="black">#FF000000</color>
-              <color name="white">#FFFFFFFF</color>
-              <color name="night_bg">#FF121212</color>
-              <color name="night_text">#FFE0E0E0</color>
-          </resources>
-          """.strip())
-
-          # ── accessibility_service_config.xml ─────────────────────────────
-          write("app/src/main/res/xml/accessibility_service_config.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-              android:accessibilityEventTypes="typeViewClicked|typeViewFocused|typeViewScrolled|typeWindowContentChanged"
-              android:accessibilityFeedbackType="feedbackSpoken"
-              android:accessibilityFlags="flagDefault|flagReportViewIds|flagRequestTouchExplorationMode"
-              android:canRetrieveWindowContent="true"
-              android:description="@string/accessibility_service_label"
-              android:notificationTimeout="100"
-              android:packageNames="com.nareshkushmi.nkpdfreader"
-              android:settingsActivity=".ui.MainActivity" />
-          """.strip())
-
-          # ── file_paths.xml ───────────────────────────────────────────────
-          write("app/src/main/res/xml/file_paths.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths>
-              <files-path name="files" path="." />
-              <cache-path name="cache" path="." />
-              <external-files-path name="external_files" path="." />
-          </paths>
-          """.strip())
-
-          # ── activity_main.xml ────────────────────────────────────────────
-          write("app/src/main/res/layout/activity_main.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <androidx.constraintlayout.widget.ConstraintLayout
-              xmlns:android="http://schemas.android.com/apk/res/android"
-              xmlns:app="http://schemas.android.com/apk/res-auto"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:importantForAccessibility="yes">
-
-              <com.google.android.material.appbar.AppBarLayout
-                  android:id="@+id/appBarLayout"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  app:layout_constraintTop_toTopOf="parent"
-                  app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent">
-
-                  <com.google.android.material.appbar.MaterialToolbar
-                      android:id="@+id/toolbar"
-                      android:layout_width="match_parent"
-                      android:layout_height="?attr/actionBarSize"
-                      app:title="@string/app_name" />
-              </com.google.android.material.appbar.AppBarLayout>
-
-              <!-- Empty state / welcome screen -->
-              <LinearLayout
-                  android:id="@+id/emptyState"
-                  android:layout_width="match_parent"
-                  android:layout_height="0dp"
-                  android:gravity="center"
-                  android:orientation="vertical"
-                  android:padding="32dp"
-                  android:importantForAccessibility="yes"
-                  app:layout_constraintTop_toBottomOf="@id/appBarLayout"
-                  app:layout_constraintBottom_toBottomOf="parent"
-                  app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent">
-
-                  <ImageView
-                      android:layout_width="120dp"
-                      android:layout_height="120dp"
-                      android:src="@android:drawable/ic_menu_agenda"
-                      android:contentDescription="@null"
-                      android:importantForAccessibility="no"
-                      android:alpha="0.5" />
-
-                  <TextView
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="NK PDF Reader"
-                      android:textSize="24sp"
-                      android:textStyle="bold"
-                      android:layout_marginTop="16dp"
-                      android:accessibilityHeading="true" />
-
-                  <TextView
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="Accessible PDF reading with TalkBack support and OCR"
-                      android:textSize="16sp"
-                      android:gravity="center"
-                      android:layout_marginTop="8dp" />
-
-                  <com.google.android.material.button.MaterialButton
-                      android:id="@+id/btnOpenPdf"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="@string/open_pdf"
-                      android:layout_marginTop="32dp"
-                      android:contentDescription="@string/open_pdf"
-                      android:minHeight="48dp"
-                      android:minWidth="48dp" />
-              </LinearLayout>
-
-          </androidx.constraintlayout.widget.ConstraintLayout>
-          """.strip())
-
-          # ── activity_pdf_viewer.xml ──────────────────────────────────────
-          write("app/src/main/res/layout/activity_pdf_viewer.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <androidx.constraintlayout.widget.ConstraintLayout
-              xmlns:android="http://schemas.android.com/apk/res/android"
-              xmlns:app="http://schemas.android.com/apk/res-auto"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:importantForAccessibility="yes">
-
-              <com.google.android.material.appbar.AppBarLayout
-                  android:id="@+id/appBar"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  app:layout_constraintTop_toTopOf="parent">
-
-                  <com.google.android.material.appbar.MaterialToolbar
-                      android:id="@+id/toolbar"
-                      android:layout_width="match_parent"
-                      android:layout_height="?attr/actionBarSize"
-                      app:navigationIcon="@android:drawable/ic_media_previous"
-                      app:navigationContentDescription="Back"
-                      app:menu="@menu/menu_pdf_viewer" />
-              </com.google.android.material.appbar.AppBarLayout>
-
-              <!-- PDF page display with zoom support -->
-              <androidx.viewpager2.widget.ViewPager2
-                  android:id="@+id/viewPager"
-                  android:layout_width="match_parent"
-                  android:layout_height="0dp"
-                  android:background="#E0E0E0"
-                  android:importantForAccessibility="yes"
-                  app:layout_constraintTop_toBottomOf="@id/appBar"
-                  app:layout_constraintBottom_toTopOf="@id/bottomBar"
-                  app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent"
-                  app:layout_constraintVertical_weight="1" />
-
-              <!-- Loading overlay -->
-              <LinearLayout
-                  android:id="@+id/loadingOverlay"
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:gravity="center"
-                  android:orientation="vertical"
-                  android:background="#88000000"
-                  android:visibility="gone"
-                  android:importantForAccessibility="yes"
-                  android:accessibilityLiveRegion="polite"
-                  app:layout_constraintTop_toTopOf="parent"
-                  app:layout_constraintBottom_toBottomOf="parent"
-                  app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent">
-
-                  <ProgressBar
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:indeterminate="true"
-                      android:contentDescription="@null"
-                      android:importantForAccessibility="no" />
-
-                  <TextView
-                      android:id="@+id/tvLoading"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:text="@string/loading_pdf"
-                      android:textColor="@color/white"
-                      android:layout_marginTop="16dp"
-                      android:accessibilityLiveRegion="polite" />
-              </LinearLayout>
-
-              <!-- Bottom navigation bar -->
-              <LinearLayout
-                  android:id="@+id/bottomBar"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:padding="8dp"
-                  android:background="?attr/colorSurface"
-                  android:elevation="8dp"
-                  app:layout_constraintBottom_toBottomOf="parent"
-                  app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent">
-
-                  <com.google.android.material.button.MaterialButton
-                      android:id="@+id/btnPrevPage"
-                      style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                      android:layout_width="0dp"
-                      android:layout_height="wrap_content"
-                      android:layout_weight="1"
-                      android:text="◀"
-                      android:contentDescription="@string/content_desc_prev_page"
-                      android:minHeight="48dp" />
-
-                  <TextView
-                      android:id="@+id/tvPageInfo"
-                      android:layout_width="0dp"
-                      android:layout_height="wrap_content"
-                      android:layout_weight="2"
-                      android:gravity="center"
-                      android:text="Page 1 of 1"
-                      android:textSize="16sp"
-                      android:accessibilityLiveRegion="polite"
-                      android:importantForAccessibility="yes" />
-
-                  <com.google.android.material.button.MaterialButton
-                      android:id="@+id/btnNextPage"
-                      style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                      android:layout_width="0dp"
-                      android:layout_height="wrap_content"
-                      android:layout_weight="1"
-                      android:text="▶"
-                      android:contentDescription="@string/content_desc_next_page"
-                      android:minHeight="48dp" />
-              </LinearLayout>
-
-              <!-- Extracted text panel (for accessibility / TTS) -->
-              <com.google.android.material.card.MaterialCardView
-                  android:id="@+id/textPanel"
-                  android:layout_width="match_parent"
-                  android:layout_height="200dp"
-                  android:visibility="gone"
-                  app:layout_constraintBottom_toTopOf="@id/bottomBar"
-                  app:layout_constraintStart_toStartOf="parent"
-                  app:layout_constraintEnd_toEndOf="parent">
-
-                  <ScrollView
-                      android:layout_width="match_parent"
-                      android:layout_height="match_parent">
-                      <TextView
-                          android:id="@+id/tvExtractedText"
-                          android:layout_width="match_parent"
-                          android:layout_height="wrap_content"
-                          android:padding="16dp"
-                          android:textSize="16sp"
-                          android:importantForAccessibility="yes"
-                          android:accessibilityLiveRegion="polite"
-                          android:focusable="true" />
-                  </ScrollView>
-              </com.google.android.material.card.MaterialCardView>
-
-          </androidx.constraintlayout.widget.ConstraintLayout>
-          """.strip())
-
-          # ── menu_pdf_viewer.xml ──────────────────────────────────────────
-          write("app/src/main/res/menu/menu_pdf_viewer.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <menu xmlns:android="http://schemas.android.com/apk/res/android"
-              xmlns:app="http://schemas.android.com/apk/res-auto">
-
-              <item
-                  android:id="@+id/action_read_aloud"
-                  android:title="@string/read_aloud"
-                  android:icon="@android:drawable/ic_btn_speak_now"
-                  android:contentDescription="@string/content_desc_read_aloud"
-                  app:showAsAction="ifRoom" />
-
-              <item
-                  android:id="@+id/action_ocr"
-                  android:title="@string/ocr_extract"
-                  app:showAsAction="never" />
-
-              <item
-                  android:id="@+id/action_zoom_in"
-                  android:title="@string/zoom_in"
-                  android:contentDescription="@string/zoom_in"
-                  app:showAsAction="never" />
-
-              <item
-                  android:id="@+id/action_zoom_out"
-                  android:title="@string/zoom_out"
-                  android:contentDescription="@string/zoom_out"
-                  app:showAsAction="never" />
-
-              <item
-                  android:id="@+id/action_night_mode"
-                  android:title="@string/night_mode"
-                  app:showAsAction="never" />
-
-          </menu>
-          """.strip())
-
-          # ── item_pdf_page.xml ────────────────────────────────────────────
-          write("app/src/main/res/layout/item_pdf_page.xml", """
-          <?xml version="1.0" encoding="utf-8"?>
-          <androidx.core.widget.NestedScrollView
-              xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:fillViewport="true"
-              android:background="#F5F5F5">
-
-              <ImageView
-                  android:id="@+id/ivPage"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:scaleType="fitStart"
-                  android:adjustViewBounds="true"
-                  android:focusable="true"
-                  android:importantForAccessibility="yes"
-                  android:padding="4dp" />
-
-          </androidx.core.widget.NestedScrollView>
-          """.strip())
-
-          # ── PdfRepository.kt ─────────────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/data/PdfRepository.kt", """
-          package com.nareshkushmi.nkpdfreader.data
-
-          import android.content.Context
-          import android.graphics.Bitmap
-          import android.graphics.Canvas
-          import android.graphics.Color
-          import android.net.Uri
-          import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
-          import com.tom_roush.pdfbox.pdmodel.PDDocument
-          import com.tom_roush.pdfbox.rendering.PDFRenderer
-          import com.tom_roush.pdfbox.text.PDFTextStripper
-          import kotlinx.coroutines.Dispatchers
-          import kotlinx.coroutines.withContext
-          import java.io.InputStream
-
-          class PdfRepository(private val context: Context) {
-
-              private var pdDocument: PDDocument? = null
-              private var pdfRenderer: PDFRenderer? = null
-
-              init {
-                  PDFBoxResourceLoader.init(context)
-              }
-
-              suspend fun openPdf(uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
-                  runCatching {
-                      pdDocument?.close()
-                      val inputStream: InputStream = context.contentResolver.openInputStream(uri)
-                          ?: error("Cannot open PDF stream")
-                      pdDocument = PDDocument.load(inputStream)
-                      pdfRenderer = PDFRenderer(pdDocument!!)
-                      pdDocument!!.numberOfPages
-                  }
-              }
-
-              /**
-               * Render a single PDF page as a Bitmap.
-               * [dpi] default 150 — good balance of quality and memory.
-               * [nightMode] inverts colors for dark reading.
-               */
-              suspend fun renderPage(
-                  pageIndex: Int,
-                  dpi: Float = 150f,
-                  nightMode: Boolean = false
-              ): Result<Bitmap> = withContext(Dispatchers.IO) {
-                  runCatching {
-                      val renderer = pdfRenderer ?: error("PDF not opened")
-                      var bitmap = renderer.renderImageWithDPI(pageIndex, dpi)
-                      if (nightMode) bitmap = invertBitmap(bitmap)
-                      bitmap
-                  }
-              }
-
-              /**
-               * Extract text from a PDF page using PDFBox TextStripper.
-               * Automatically converts legacy Nepali fonts (Preeti, Kantipur) to Unicode.
-               * Returns empty string if page has no selectable text (scanned PDF).
-               */
-              suspend fun extractTextFromPage(pageIndex: Int): Result<String> =
-                  withContext(Dispatchers.IO) {
-                      runCatching {
-                          val doc = pdDocument ?: error("PDF not opened")
-                          val stripper = PDFTextStripper()
-                          stripper.startPage = pageIndex + 1
-                          stripper.endPage = pageIndex + 1
-                          stripper.sortByPosition = true
-                          val rawText = stripper.getText(doc).trim()
-                          // Convert legacy Nepali font encoding to Unicode if needed
-                          com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(rawText)
-                      }
-                  }
-
-              fun getPageCount(): Int = pdDocument?.numberOfPages ?: 0
-
-              fun closePdf() {
-                  pdDocument?.close()
-                  pdDocument = null
-                  pdfRenderer = null
-              }
-
-              private fun invertBitmap(src: Bitmap): Bitmap {
-                  val result = Bitmap.createBitmap(src.width, src.height, src.config)
-                  val canvas = Canvas(result)
-                  canvas.drawColor(Color.BLACK)
-                  for (x in 0 until src.width) {
-                      for (y in 0 until src.height) {
-                          val pixel = src.getPixel(x, y)
-                          result.setPixel(
-                              x, y,
-                              Color.argb(
-                                  Color.alpha(pixel),
-                                  255 - Color.red(pixel),
-                                  255 - Color.green(pixel),
-                                  255 - Color.blue(pixel)
-                              )
-                          )
-                      }
-                  }
-                  return result
-              }
-          }
-          """.strip())
-
-          # ── OcrRepository.kt ─────────────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/data/OcrRepository.kt", """
-          package com.nareshkushmi.nkpdfreader.data
-
-          import android.graphics.Bitmap
-          import com.google.mlkit.vision.common.InputImage
-          import com.google.mlkit.vision.text.TextRecognition
-          import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-          import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
-          import kotlinx.coroutines.tasks.await
-          import kotlinx.coroutines.Dispatchers
-          import kotlinx.coroutines.withContext
-
-          class OcrRepository {
-
-              // Latin script recognizer (English, numbers, etc.)
-              private val latinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-              // Devanagari recognizer (Nepali / Hindi)
-              private val devanagariRecognizer = TextRecognition.getClient(
-                  DevanagariTextRecognizerOptions.Builder().build()
-              )
-
-              /**
-               * Extract text from a rendered PDF page bitmap using ML Kit OCR.
-               * Tries Latin first; if result is sparse, also tries Devanagari.
-               */
-              suspend fun extractTextFromBitmap(
-                  bitmap: Bitmap,
-                  preferDevanagari: Boolean = false
-              ): Result<String> = withContext(Dispatchers.IO) {
-                  runCatching {
-                      val image = InputImage.fromBitmap(bitmap, 0)
-                      val recognizer = if (preferDevanagari) devanagariRecognizer else latinRecognizer
-                      val result = recognizer.process(image).await()
-                      val text = result.text.trim()
-
-                      // If Latin result is sparse, try Devanagari as fallback
-                      if (!preferDevanagari && text.length < 20) {
-                          val devResult = devanagariRecognizer.process(image).await()
-                          val devText = devResult.text.trim()
-                          if (devText.length > text.length) {
-                              return@runCatching com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(devText)
-                          }
-                      }
-                      // Convert to Unicode (handles legacy font PDFs rendered as images)
-                      com.nareshkushmi.nkpdfreader.util.NepaliTextConverter.toUnicode(text)
-                  }
-              }
-
-              fun close() {
-                  latinRecognizer.close()
-                  devanagariRecognizer.close()
-              }
-          }
-          """.strip())
-
-          # ── PdfViewModel.kt ──────────────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/viewmodel/PdfViewModel.kt", """
-          package com.nareshkushmi.nkpdfreader.viewmodel
-
-          import android.app.Application
-          import android.graphics.Bitmap
-          import android.net.Uri
-          import androidx.lifecycle.AndroidViewModel
-          import androidx.lifecycle.LiveData
-          import androidx.lifecycle.MutableLiveData
-          import androidx.lifecycle.viewModelScope
-          import com.nareshkushmi.nkpdfreader.data.OcrRepository
-          import com.nareshkushmi.nkpdfreader.data.PdfRepository
-          import kotlinx.coroutines.launch
-
-          // Page rendering state
-          sealed class PageState {
-              object Idle : PageState()
-              object Loading : PageState()
-              data class Ready(val bitmap: Bitmap, val pageIndex: Int, val total: Int) : PageState()
-              data class Error(val message: String) : PageState()
-          }
-
-          // Text extraction state — completely separate from page navigation
-          sealed class TextState {
-              object Idle : TextState()
-              object Extracting : TextState()
-              data class Ready(val text: String, val pageIndex: Int) : TextState()
-              data class Error(val message: String) : TextState()
-          }
-
-          // Keep UiState as alias for backward compat with TTS/OCR button
-          typealias UiState = PageState
-
-          class PdfViewModel(application: Application) : AndroidViewModel(application) {
-
-              private val pdfRepo = PdfRepository(application)
-              private val ocrRepo = OcrRepository()
-
-              // Two independent LiveData streams — no interference
-              private val _pageState = MutableLiveData<PageState>(PageState.Idle)
-              val pageState: LiveData<PageState> = _pageState
-
-              private val _textState = MutableLiveData<TextState>(TextState.Idle)
-              val textState: LiveData<TextState> = _textState
-
-              // Keep uiState pointing to pageState for backward compat
-              val uiState: LiveData<PageState> = _pageState
-
-              private val _currentPage = MutableLiveData(0)
-              val currentPage: LiveData<Int> = _currentPage
-
-              var totalPages = 0
-                  private set
-              var nightMode = false
-              var zoomDpi = 150f
-
-              fun openPdf(uri: Uri) {
-                  viewModelScope.launch {
-                      _pageState.value = PageState.Loading
-                      pdfRepo.openPdf(uri).fold(
-                          onSuccess = { pageCount ->
-                              totalPages = pageCount
-                              _currentPage.value = 0
-                              renderCurrentPage()
-                          },
-                          onFailure = {
-                              _pageState.value = PageState.Error(it.message ?: "Failed to open PDF")
-                          }
-                      )
-                  }
-              }
-
-              fun goToPage(index: Int) {
-                  if (index < 0 || index >= totalPages) return
-                  if (_currentPage.value == index && _pageState.value is PageState.Ready) return
-                  _currentPage.value = index
-                  renderCurrentPage()
-              }
-
-              fun nextPage() = goToPage((_currentPage.value ?: 0) + 1)
-              fun prevPage() = goToPage((_currentPage.value ?: 0) - 1)
-
-              private fun renderCurrentPage() {
-                  val page = _currentPage.value ?: return
-                  viewModelScope.launch {
-                      _pageState.value = PageState.Loading
-                      pdfRepo.renderPage(page, zoomDpi, nightMode).fold(
-                          onSuccess = { bitmap ->
-                              _pageState.value = PageState.Ready(bitmap, page, totalPages)
-                              // Auto-extract text for accessibility after render
-                              extractTextForAccessibility(page)
-                          },
-                          onFailure = {
-                              _pageState.value = PageState.Error(it.message ?: "Render error")
-                          }
-                      )
-                  }
-              }
-
-              /**
-               * Silent background text extraction for TalkBack/accessibility.
-               * Posts to _textState only — never touches _pageState,
-               * so it cannot trigger page navigation loop.
-               */
-              private fun extractTextForAccessibility(page: Int) {
-                  viewModelScope.launch {
-                      _textState.value = TextState.Extracting
-                      val pdfText = pdfRepo.extractTextFromPage(page).getOrNull()
-                      if (!pdfText.isNullOrBlank() && pdfText.length > 10) {
-                          _textState.value = TextState.Ready(pdfText, page)
-                          return@launch
-                      }
-                      // Fallback: OCR
-                      pdfRepo.renderPage(page, 200f, false).onSuccess { bitmap ->
-                          ocrRepo.extractTextFromBitmap(bitmap, false).onSuccess { text ->
-                              _textState.value = TextState.Ready(
-                                  text.ifBlank { "Page ${page + 1}" }, page
-                              )
-                          }
-                      }
-                  }
-              }
-
-              /**
-               * Manual text extraction for TTS read-aloud button.
-               * Posts result to _textState.
-               */
-              fun extractText(preferDevanagari: Boolean = false) {
-                  val page = _currentPage.value ?: return
-                  viewModelScope.launch {
-                      _textState.value = TextState.Extracting
-                      val pdfText = pdfRepo.extractTextFromPage(page).getOrNull()
-                      if (!pdfText.isNullOrBlank() && pdfText.length > 30) {
-                          _textState.value = TextState.Ready(pdfText, page)
-                          return@launch
-                      }
-                      pdfRepo.renderPage(page, 200f, false).fold(
-                          onSuccess = { bitmap ->
-                              ocrRepo.extractTextFromBitmap(bitmap, preferDevanagari).fold(
-                                  onSuccess = { text ->
-                                      _textState.value = TextState.Ready(
-                                          text.ifBlank { "No text found on this page." }, page
-                                      )
-                                  },
-                                  onFailure = {
-                                      _textState.value = TextState.Error("OCR failed: ${it.message}")
-                                  }
-                              )
-                          },
-                          onFailure = {
-                              _textState.value = TextState.Error(it.message ?: "Render error")
-                          }
-                      )
-                  }
-              }
-
-              override fun onCleared() {
-                  super.onCleared()
-                  pdfRepo.closePdf()
-                  ocrRepo.close()
-              }
-          }
-          """.strip())
-
-          # ── MainActivity.kt ──────────────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/MainActivity.kt", """
-          package com.nareshkushmi.nkpdfreader.ui
-
-          import android.content.Intent
-          import android.net.Uri
-          import android.os.Bundle
-          import androidx.activity.result.contract.ActivityResultContracts
-          import androidx.appcompat.app.AppCompatActivity
-          import com.nareshkushmi.nkpdfreader.databinding.ActivityMainBinding
-
-          class MainActivity : AppCompatActivity() {
-
-              private lateinit var binding: ActivityMainBinding
-
-              private val openPdfLauncher = registerForActivityResult(
-                  ActivityResultContracts.GetContent()
-              ) { uri: Uri? ->
-                  uri?.let { openPdfViewer(it) }
-              }
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  binding = ActivityMainBinding.inflate(layoutInflater)
-                  setContentView(binding.root)
-                  setSupportActionBar(binding.toolbar)
-
-                  binding.btnOpenPdf.setOnClickListener {
-                      openPdfLauncher.launch("application/pdf")
-                  }
-
-                  // Handle intent if opened via file manager
-                  intent?.data?.let { openPdfViewer(it) }
-              }
-
-              private fun openPdfViewer(uri: Uri) {
-                  val intent = Intent(this, PdfViewerActivity::class.java).apply {
-                      putExtra(PdfViewerActivity.EXTRA_PDF_URI, uri.toString())
-                  }
-                  startActivity(intent)
-              }
-          }
-          """.strip())
-
-          # ── PdfViewerActivity.kt ─────────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/PdfViewerActivity.kt", """
-          package com.nareshkushmi.nkpdfreader.ui
-
-          import android.net.Uri
-          import android.os.Bundle
-          import android.speech.tts.TextToSpeech
-          import android.view.MenuItem
-          import android.view.View
-          import android.widget.Toast
-          import androidx.activity.viewModels
-          import androidx.appcompat.app.AppCompatActivity
-          import com.nareshkushmi.nkpdfreader.databinding.ActivityPdfViewerBinding
-          import com.nareshkushmi.nkpdfreader.viewmodel.PdfViewModel
-          import com.nareshkushmi.nkpdfreader.viewmodel.UiState
-          import java.util.Locale
-
-          class PdfViewerActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
-
-              companion object {
-                  const val EXTRA_PDF_URI = "extra_pdf_uri"
-              }
-
-              private lateinit var binding: ActivityPdfViewerBinding
-              private val viewModel: PdfViewModel by viewModels()
-              private lateinit var pdfAdapter: PdfPageAdapter
-              private var tts: TextToSpeech? = null
-              private var ttsReady = false
-              private var isReading = false
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  binding = ActivityPdfViewerBinding.inflate(layoutInflater)
-                  setContentView(binding.root)
-                  setSupportActionBar(binding.toolbar)
-                  supportActionBar?.setDisplayHomeAsUpEnabled(true)
-
-                  tts = TextToSpeech(this, this)
-
-                  val uriString = intent.getStringExtra(EXTRA_PDF_URI)
-                      ?: run { finish(); return }
-                  val uri = Uri.parse(uriString)
-
-                  setupViewPager()
-                  setupBottomBar()
-                  observeViewModel()
-
-                  viewModel.openPdf(uri)
-              }
-
-              private fun setupViewPager() {
-                  pdfAdapter = PdfPageAdapter()
-                  // On-demand render: when ViewPager2 binds a page not yet cached
-                  pdfAdapter.onPageVisible = { pageIndex ->
-                      if (pageIndex != viewModel.currentPage.value) {
-                          viewModel.goToPage(pageIndex)
-                      }
-                  }
-                  binding.viewPager.adapter = pdfAdapter
-                  binding.viewPager.isUserInputEnabled = true
-                  binding.viewPager.offscreenPageLimit = 1
-                  binding.viewPager.registerOnPageChangeCallback(
-                      object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
-                          override fun onPageSelected(position: Int) {
-                              super.onPageSelected(position)
-                              // Guard: only render if this is a new page (breaks feedback loop)
-                              if (viewModel.currentPage.value != position) {
-                                  viewModel.goToPage(position)
-                              }
-                          }
-                      }
-                  )
-              }
-
-              private fun setupBottomBar() {
-                  binding.btnPrevPage.setOnClickListener { viewModel.prevPage() }
-                  binding.btnNextPage.setOnClickListener { viewModel.nextPage() }
-              }
-
-              private fun observeViewModel() {
-                  // ── Stream 1: Page rendering (controls navigation) ──────────
-                  viewModel.pageState.observe(this) { state ->
-                      when (state) {
-                          is com.nareshkushmi.nkpdfreader.viewmodel.PageState.Loading -> {
-                              binding.loadingOverlay.visibility = View.VISIBLE
-                          }
-                          is com.nareshkushmi.nkpdfreader.viewmodel.PageState.Ready -> {
-                              binding.loadingOverlay.visibility = View.GONE
-                              if (pdfAdapter.itemCount != state.total) {
-                                  pdfAdapter.setTotalPages(state.total)
-                              }
-                              pdfAdapter.updatePage(state.pageIndex, state.bitmap)
-                              val vpCurrent = binding.viewPager.currentItem
-                              if (vpCurrent != state.pageIndex) {
-                                  binding.viewPager.setCurrentItem(state.pageIndex, false)
-                              }
-                              val pageText = getString(
-                                  com.nareshkushmi.nkpdfreader.R.string.page_of,
-                                  state.pageIndex + 1,
-                                  state.total
-                              )
-                              binding.tvPageInfo.text = pageText
-                              binding.tvPageInfo.contentDescription = pageText
-                              binding.tvPageInfo.announceForAccessibility(pageText)
-                          }
-                          is com.nareshkushmi.nkpdfreader.viewmodel.PageState.Error -> {
-                              binding.loadingOverlay.visibility = View.GONE
-                              Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
-                          }
-                          else -> {}
-                      }
-                  }
-
-                  // ── Stream 2: Text extraction (TalkBack + TTS) ──────────────
-                  // Never calls goToPage() — loop impossible
-                  viewModel.textState.observe(this) { state ->
-                      when (state) {
-                          is com.nareshkushmi.nkpdfreader.viewmodel.TextState.Ready -> {
-                              // Set contentDescription on ImageView for TalkBack
-                              val rv = binding.viewPager.getChildAt(0)
-                                  as? androidx.recyclerview.widget.RecyclerView
-                              rv?.findViewHolderForAdapterPosition(state.pageIndex)
-                                  ?.itemView
-                                  ?.findViewById<android.widget.ImageView>(
-                                      com.nareshkushmi.nkpdfreader.R.id.ivPage
-                                  )
-                                  ?.contentDescription = state.text
-                              // TTS read-aloud if active
-                              if (isReading) {
-                                  binding.textPanel.visibility = View.VISIBLE
-                                  binding.tvExtractedText.text = state.text
-                                  speakText(state.text)
-                              }
-                          }
-                          is com.nareshkushmi.nkpdfreader.viewmodel.TextState.Error -> {
-                              if (isReading) Toast.makeText(this, state.message, Toast.LENGTH_SHORT).show()
-                          }
-                          else -> {}
-                      }
-                  }
-              }
-
-              override fun onOptionsItemSelected(item: MenuItem): Boolean {
-                  return when (item.itemId) {
-                      android.R.id.home -> { onBackPressedDispatcher.onBackPressed(); true }
-                      com.nareshkushmi.nkpdfreader.R.id.action_read_aloud -> {
-                          if (!ttsReady) {
-                              Toast.makeText(this,
-                                  getString(com.nareshkushmi.nkpdfreader.R.string.tts_not_available),
-                                  Toast.LENGTH_SHORT).show()
-                              return true
-                          }
-                          isReading = !isReading
-                          if (isReading) {
-                              item.title = getString(com.nareshkushmi.nkpdfreader.R.string.stop_reading)
-                              // textState already has extracted text from background extraction
-                              val current = viewModel.textState.value
-                              if (current is com.nareshkushmi.nkpdfreader.viewmodel.TextState.Ready) {
-                                  binding.textPanel.visibility = View.VISIBLE
-                                  binding.tvExtractedText.text = current.text
-                                  speakText(current.text)
-                              } else {
-                                  // Trigger fresh extraction if not yet available
-                                  viewModel.extractText()
-                              }
-                          } else {
-                              item.title = getString(com.nareshkushmi.nkpdfreader.R.string.read_aloud)
-                              binding.textPanel.visibility = View.GONE
-                              tts?.stop()
-                          }
-                          true
-                      }
-                      com.nareshkushmi.nkpdfreader.R.id.action_ocr -> {
-                          viewModel.extractText(preferDevanagari = false)
-                          true
-                      }
-                      com.nareshkushmi.nkpdfreader.R.id.action_zoom_in -> {
-                          viewModel.zoomDpi = (viewModel.zoomDpi + 25f).coerceAtMost(300f)
-                          viewModel.goToPage(viewModel.currentPage.value ?: 0)
-                          true
-                      }
-                      com.nareshkushmi.nkpdfreader.R.id.action_zoom_out -> {
-                          viewModel.zoomDpi = (viewModel.zoomDpi - 25f).coerceAtLeast(72f)
-                          viewModel.goToPage(viewModel.currentPage.value ?: 0)
-                          true
-                      }
-                      com.nareshkushmi.nkpdfreader.R.id.action_night_mode -> {
-                          viewModel.nightMode = !viewModel.nightMode
-                          viewModel.goToPage(viewModel.currentPage.value ?: 0)
-                          true
-                      }
-                      else -> super.onOptionsItemSelected(item)
-                  }
-              }
-
-              override fun onInit(status: Int) {
-                  if (status == TextToSpeech.SUCCESS) {
-                      tts?.language = Locale.getDefault()
-                      ttsReady = true
-                  }
-              }
-
-              private fun speakText(text: String) {
-                  tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "pdf_read")
-              }
-
-
-
-              override fun onDestroy() {
-                  tts?.stop()
-                  tts?.shutdown()
-                  super.onDestroy()
-              }
-          }
-          """.strip())
-
-          # ── PdfAccessibilityService.kt ───────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/accessibility/PdfAccessibilityService.kt", """
-          package com.nareshkushmi.nkpdfreader.accessibility
-
-          import android.accessibilityservice.AccessibilityService
-          import android.view.accessibility.AccessibilityEvent
-
-          /**
-           * Accessibility service that enhances PDF page navigation for TalkBack users.
-           * Announces page transitions and text content changes automatically.
-           */
-          class PdfAccessibilityService : AccessibilityService() {
-
-              override fun onAccessibilityEvent(event: AccessibilityEvent) {
-                  when (event.eventType) {
-                      AccessibilityEvent.TYPE_VIEW_SCROLLED,
-                      AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                          // Let TalkBack handle content changes natively
-                          // (views use announceForAccessibility + accessibilityLiveRegion)
-                      }
-                  }
-              }
-
-              override fun onInterrupt() {
-                  // Required override
-              }
-          }
-          """.strip())
-
-          # ── NepaliTextConverter.kt ──────────────────────────────────────
-          import base64 as _b64
-          _ntc_src = _b64.b64decode("cGFja2FnZSBjb20ubmFyZXNoa3VzaG1pLm5rcGRmcmVhZGVyLnV0aWwKCi8qKgogKiBDb252ZXJ0cyBsZWdhY3kgTmVwYWxpIGZvbnQgZW5jb2RpbmdzIChQcmVldGksIEthbnRpcHVyKSB0byBVbmljb2RlIERldmFuYWdhcmkuCiAqIFRoZXNlIGZvbnRzIG1hcCBBU0NJSSBieXRlcyB0byBEZXZhbmFnYXJpIGdseXBocyB2aXN1YWxseS4KICogUERGQm94IGV4dHJhY3RzIHJhdyBBU0NJSSwgc28gd2UgcmVtYXAgdG8gcHJvcGVyIFVuaWNvZGUgY29kZXBvaW50cy4KICovCm9iamVjdCBOZXBhbGlUZXh0Q29udmVydGVyIHsKCiAgICAvLyBQcmVldGkgZm9udDogQVNDSUkgY2hhciAtPiBVbmljb2RlIERldmFuYWdhcmkgc3RyaW5nCiAgICBwcml2YXRlIHZhbCBQUkVFVEk6IE1hcDxDaGFyLCBTdHJpbmc+ID0gbWFwT2YoCiAgICAgICAgJyEnIHRvICLgpKLgpY0iLCAnIicgdG8gIuCkn+CljeCknyIsCiAgICAgICAgJyMnIHRvICLgpKDgpY0iLCAnJCcgdG8gIuCkoeCljSIsCiAgICAgICAgJyUnIHRvICLgpJvgpY0iLCAnJicgdG8gIuCkleCljeCktyIsCiAgICAgICAgJycnIHRvICLgpKTgpY0iLCAnKCcgdG8gIuCkpuCljSIsCiAgICAgICAgJyknIHRvICLgpKfgpY0iLCAnKicgdG8gIuCkpuCljeCkpuCljSIsCiAgICAgICAgJysnIHRvICLgpKAiLCAnLCcgdG8gIiwiLAogICAgICAgICctJyB0byAiICIsICcuJyB0byAi4KWkIiwKICAgICAgICAnLycgdG8gIuCkr+CljSIsICcwJyB0byAi4KWmIiwKICAgICAgICAnMScgdG8gIuClpyIsICcyJyB0byAi4KWoIiwKICAgICAgICAnMycgdG8gIuClqSIsICc0JyB0byAi4KWqIiwKICAgICAgICAnNScgdG8gIuClqyIsICc2JyB0byAi4KWsIiwKICAgICAgICAnNycgdG8gIuClrSIsICc4JyB0byAi4KWuIiwKICAgICAgICAnOScgdG8gIuClryIsICc6JyB0byAi4KSDIiwKICAgICAgICAnPCcgdG8gIuCkpOCljeCkpCIsICc+JyB0byAi4KSk4KWN4KSk4KWNIiwKICAgICAgICAnPycgdG8gIuClnyIsICdAJyB0byAi4KWMIiwKICAgICAgICAnQScgdG8gIuCkviIsICdCJyB0byAi4KS1IiwKICAgICAgICAnQycgdG8gIuCkriIsICdEJyB0byAi4KS/IiwKICAgICAgICAnRScgdG8gIuClgSIsICdGJyB0byAi4KSw4KWHIiwKICAgICAgICAnRycgdG8gIuClhyIsICdIJyB0byAi4KSGIiwKICAgICAgICAnSScgdG8gIuCkqOCljSIsICdKJyB0byAi4KS14KWNIiwKICAgICAgICAnSycgdG8gIuCkquCljSIsICdMJyB0byAi4KWAIiwKICAgICAgICAnTScgdG8gIuCkiSIsICdOJyB0byAi4KWCIiwKICAgICAgICAnTycgdG8gIuCkgiIsICdQJyB0byAi4KSUIiwKICAgICAgICAnUicgdG8gIuCljeCksCIsICdTJyB0byAi4KS14KWN4KS1IiwKICAgICAgICAnVCcgdG8gIuCkhyIsICdVJyB0byAi4KSIIiwKICAgICAgICAnVycgdG8gIuCkkyIsICdZJyB0byAi4KWLIiwKICAgICAgICAnWicgdG8gIuCktuCljeCksCIsCiAgICAgICAgJ1snIHRvICLgpKHgpY3gpKEiLCAnXScgdG8gIuCkouCljeCkoiIsCiAgICAgICAgJ18nIHRvICLigJMiLAogICAgICAgICdhJyB0byAi4KSVIiwgJ2InIHRvICLgpJYiLAogICAgICAgICdjJyB0byAi4KSXIiwgJ2QnIHRvICLgpJgiLAogICAgICAgICdlJyB0byAi4KSZIiwgJ2YnIHRvICLgpJoiLAogICAgICAgICdnJyB0byAi4KSbIiwgJ2gnIHRvICLgpJwiLAogICAgICAgICdpJyB0byAi4KSdIiwgJ2onIHRvICLgpJ4iLAogICAgICAgICdrJyB0byAi4KSfIiwgJ2wnIHRvICLgpKAiLAogICAgICAgICdtJyB0byAi4KShIiwgJ24nIHRvICLgpKIiLAogICAgICAgICdvJyB0byAi4KSjIiwgJ3AnIHRvICLgpKQiLAogICAgICAgICdxJyB0byAi4KSlIiwgJ3InIHRvICLgpKYiLAogICAgICAgICdzJyB0byAi4KSnIiwgJ3QnIHRvICLgpKgiLAogICAgICAgICd1JyB0byAi4KSqIiwgJ3YnIHRvICLgpKsiLAogICAgICAgICd3JyB0byAi4KSsIiwgJ3gnIHRvICLgpK0iLAogICAgICAgICd5JyB0byAi4KSuIiwgJ3onIHRvICLgpK8iLAogICAgICAgICd7JyB0byAi4KSwIiwgJ3wnIHRvICLgpLIiLAogICAgICAgICd9JyB0byAi4KS1IgogICAgKQoKICAgIC8vIEthbnRpcHVyIGZvbnQgbWFwcGluZwogICAgcHJpdmF0ZSB2YWwgS0FOVElQVVI6IE1hcDxDaGFyLCBTdHJpbmc+ID0gbWFwT2YoCiAgICAgICAgJ2EnIHRvICLgpIUiLCAnQScgdG8gIuCkhiIsCiAgICAgICAgJ2InIHRvICLgpKwiLCAnQicgdG8gIuCkrSIsCiAgICAgICAgJ2MnIHRvICLgpJoiLCAnQycgdG8gIuCkmyIsCiAgICAgICAgJ2QnIHRvICLgpKYiLCAnRCcgdG8gIuCkpyIsCiAgICAgICAgJ2UnIHRvICLgpYciLCAnRScgdG8gIuCliCIsCiAgICAgICAgJ2YnIHRvICLgpKsiLCAnRicgdG8gIuCkq+CljSIsCiAgICAgICAgJ2cnIHRvICLgpJciLCAnRycgdG8gIuCkmCIsCiAgICAgICAgJ2gnIHRvICLgpLkiLCAnSCcgdG8gIuCkgyIsCiAgICAgICAgJ2knIHRvICLgpL8iLCAnSScgdG8gIuClgCIsCiAgICAgICAgJ2onIHRvICLgpJwiLCAnSicgdG8gIuCknSIsCiAgICAgICAgJ2snIHRvICLgpJUiLCAnSycgdG8gIuCkliIsCiAgICAgICAgJ2wnIHRvICLgpLIiLCAnTCcgdG8gIuCksyIsCiAgICAgICAgJ20nIHRvICLgpK4iLCAnTScgdG8gIuCkgiIsCiAgICAgICAgJ24nIHRvICLgpKgiLCAnTicgdG8gIuCkoyIsCiAgICAgICAgJ28nIHRvICLgpYsiLCAnTycgdG8gIuCljCIsCiAgICAgICAgJ3AnIHRvICLgpKoiLCAnUCcgdG8gIuCkqyIsCiAgICAgICAgJ3EnIHRvICLgpY0iLCAncicgdG8gIuCksCIsCiAgICAgICAgJ1InIHRvICLgpLEiLCAncycgdG8gIuCkuCIsCiAgICAgICAgJ1MnIHRvICLgpLciLCAndCcgdG8gIuCkpCIsCiAgICAgICAgJ1QnIHRvICLgpKUiLCAndScgdG8gIuClgSIsCiAgICAgICAgJ1UnIHRvICLgpYIiLCAndicgdG8gIuCktSIsCiAgICAgICAgJ1YnIHRvICLgpLYiLCAndycgdG8gIuCkoCIsCiAgICAgICAgJ3gnIHRvICLgpKEiLCAnWCcgdG8gIuCkoiIsCiAgICAgICAgJ3knIHRvICLgpK8iLCAnMCcgdG8gIuClpiIsCiAgICAgICAgJzEnIHRvICLgpaciLCAnMicgdG8gIuClqCIsCiAgICAgICAgJzMnIHRvICLgpakiLCAnNCcgdG8gIuClqiIsCiAgICAgICAgJzUnIHRvICLgpasiLCAnNicgdG8gIuClrCIsCiAgICAgICAgJzcnIHRvICLgpa0iLCAnOCcgdG8gIuClriIsCiAgICAgICAgJzknIHRvICLgpa8iLCAnLicgdG8gIuClpCIsCiAgICAgICAgJywnIHRvICIsIgogICAgKQoKICAgIGVudW0gY2xhc3MgRm9udFR5cGUgeyBVTklDT0RFLCBQUkVFVEksIEtBTlRJUFVSLCBVTktOT1dOIH0KCiAgICAvKiogQXV0by1kZXRlY3QgZm9udCBmcm9tIHRleHQgc2FtcGxlLiAqLwogICAgZnVuIGRldGVjdEZvbnQodGV4dDogU3RyaW5nKTogRm9udFR5cGUgewogICAgICAgIGlmICh0ZXh0LmlzQmxhbmsoKSkgcmV0dXJuIEZvbnRUeXBlLlVOS05PV04KICAgICAgICB2YWwgZGV2YW5hZ2FyaUNvdW50ID0gdGV4dC5jb3VudCB7IGl0LmNvZGUgaW4gMHgwOTAwLi4weDA5N0YgfQogICAgICAgIHZhbCB0b3RhbENvdW50ID0gdGV4dC5jb3VudCB7ICFpdC5pc1doaXRlc3BhY2UoKSB9CiAgICAgICAgaWYgKHRvdGFsQ291bnQgPT0gMCkgcmV0dXJuIEZvbnRUeXBlLlVOS05PV04KICAgICAgICAvLyBBbHJlYWR5IFVuaWNvZGUgaWYgbW9zdCBjaGFycyBhcmUgRGV2YW5hZ2FyaQogICAgICAgIGlmIChkZXZhbmFnYXJpQ291bnQgPiB0b3RhbENvdW50IC8gMikgcmV0dXJuIEZvbnRUeXBlLlVOSUNPREUKICAgICAgICAvLyBIZXVyaXN0aWMgZm9yIGxlZ2FjeSBmb250cwogICAgICAgIHZhbCBsb3dlckNvdW50ID0gdGV4dC5jb3VudCB7IGl0IGluICdhJy4uJ3onIH0KICAgICAgICByZXR1cm4gaWYgKGxvd2VyQ291bnQgPiB0b3RhbENvdW50IC8gNCkgRm9udFR5cGUuUFJFRVRJIGVsc2UgRm9udFR5cGUuS0FOVElQVVIKICAgIH0KCiAgICAvKiogQ29udmVydCB0ZXh0IHRvIFVuaWNvZGUuIEF1dG8tZGV0ZWN0cyBmb250IGlmIG5vdCBzcGVjaWZpZWQuICovCiAgICBmdW4gdG9Vbmljb2RlKHRleHQ6IFN0cmluZywgZm9udFR5cGU6IEZvbnRUeXBlID0gRm9udFR5cGUuVU5LTk9XTik6IFN0cmluZyB7CiAgICAgICAgdmFsIHR5cGUgPSBpZiAoZm9udFR5cGUgPT0gRm9udFR5cGUuVU5LTk9XTikgZGV0ZWN0Rm9udCh0ZXh0KSBlbHNlIGZvbnRUeXBlCiAgICAgICAgcmV0dXJuIHdoZW4gKHR5cGUpIHsKICAgICAgICAgICAgRm9udFR5cGUuVU5JQ09ERSAtPiB0ZXh0CiAgICAgICAgICAgIEZvbnRUeXBlLlBSRUVUSSAtPiBjb252ZXJ0KHRleHQsIFBSRUVUSSkKICAgICAgICAgICAgRm9udFR5cGUuS0FOVElQVVIgLT4gY29udmVydCh0ZXh0LCBLQU5USVBVUikKICAgICAgICAgICAgRm9udFR5cGUuVU5LTk9XTiAtPiB0ZXh0CiAgICAgICAgfQogICAgfQoKICAgIHByaXZhdGUgZnVuIGNvbnZlcnQodGV4dDogU3RyaW5nLCBtYXA6IE1hcDxDaGFyLCBTdHJpbmc+KTogU3RyaW5nID0KICAgICAgICBidWlsZFN0cmluZyB7IGZvciAoY2ggaW4gdGV4dCkgYXBwZW5kKG1hcFtjaF0gPzogY2gudG9TdHJpbmcoKSkgfQp9Cg==").decode("utf-8")
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/util/NepaliTextConverter.kt",
-                _ntc_src)
-
-          # ── PdfPageAdapter.kt ───────────────────────────────────────────
-          write("app/src/main/java/com/nareshkushmi/nkpdfreader/ui/PdfPageAdapter.kt", """
-          package com.nareshkushmi.nkpdfreader.ui
-
-          import android.graphics.Bitmap
-          import android.view.LayoutInflater
-          import android.view.ViewGroup
-          import androidx.recyclerview.widget.RecyclerView
-          import com.nareshkushmi.nkpdfreader.databinding.ItemPdfPageBinding
-
-          /**
-           * Adapter for ViewPager2.
-           * totalPages = total number of pages in the PDF.
-           * Pages are rendered on-demand and cached in [cache].
-           */
-          class PdfPageAdapter(private var totalPages: Int = 0) :
-              RecyclerView.Adapter<PdfPageAdapter.PageViewHolder>() {
-
-              private val cache = mutableMapOf<Int, Bitmap>()
-              var onPageVisible: ((Int) -> Unit)? = null
-
-              fun setTotalPages(count: Int) {
-                  totalPages = count
-                  notifyDataSetChanged()
-              }
-
-              fun updatePage(index: Int, bitmap: Bitmap) {
-                  cache[index] = bitmap
-                  notifyItemChanged(index)
-              }
-
-              inner class PageViewHolder(val binding: ItemPdfPageBinding) :
-                  RecyclerView.ViewHolder(binding.root)
-
-              override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageViewHolder {
-                  val binding = ItemPdfPageBinding.inflate(
-                      LayoutInflater.from(parent.context), parent, false
-                  )
-                  return PageViewHolder(binding)
-              }
-
-              override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
-                  val bmp = cache[position]
-                  if (bmp != null) {
-                      holder.binding.ivPage.setImageBitmap(bmp)
-                  } else {
-                      holder.binding.ivPage.setImageBitmap(null)
-                      // Request render for this page
-                      onPageVisible?.invoke(position)
-                  }
-                  holder.binding.ivPage.contentDescription =
-                      holder.itemView.context.getString(
-                          com.nareshkushmi.nkpdfreader.R.string.content_desc_page, position + 1
-                      )
-              }
-
-              override fun getItemCount(): Int = totalPages
-          }
-          """.strip())
-
-          # ── proguard-rules.pro ───────────────────────────────────────────
-          write("app/proguard-rules.pro", """
-          # PDFBox
-          -keep class com.tom_roush.pdfbox.** { *; }
-          -dontwarn com.tom_roush.pdfbox.**
-
-          # ML Kit
-          -keep class com.google.mlkit.** { *; }
-          -dontwarn com.google.mlkit.**
-          """.strip())
-
-          # ── Launcher icons (programmatic PNG via Python struct) ────────
-          # Simple 48x48 purple square icon - no PIL needed, pure Python PNG
-          import struct, zlib
-
-          def make_png(size, r, g, b):
-              """Generate a minimal valid PNG with solid color."""
-              def chunk(name, data):
-                  c = struct.pack(">I", len(data)) + name + data
-                  return c + struct.pack(">I", zlib.crc32(name + data) & 0xFFFFFFFF)
-
-              sig = b"\x89PNG\r\n\x1a\n"
-              ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
-              # Build raw image data: filter byte 0x00 + RGB pixels per row
-              row = b"\x00" + bytes([r, g, b] * size)
-              raw = row * size
-              idat = chunk(b"IDAT", zlib.compress(raw))
-              iend = chunk(b"IEND", b"")
-              return sig + ihdr + idat + iend
-
-          icon_configs = [
-              ("mipmap-mdpi",    48,  0x62, 0x00, 0xEE),  # purple_500
-              ("mipmap-hdpi",    72,  0x62, 0x00, 0xEE),
-              ("mipmap-xhdpi",   96,  0x62, 0x00, 0xEE),
-              ("mipmap-xxhdpi",  144, 0x62, 0x00, 0xEE),
-              ("mipmap-xxxhdpi", 192, 0x62, 0x00, 0xEE),
-          ]
-
-          for folder, size, r, g, b in icon_configs:
-              png_data = make_png(size, r, g, b)
-              for name in ("ic_launcher.png", "ic_launcher_round.png"):
-                  path = f"app/src/main/res/{folder}/{name}"
-                  os.makedirs(os.path.dirname(path), exist_ok=True)
-                  with open(path, "wb") as f:
-                      f.write(png_data)
-                  print(f"  ✅ {path}")
-
-          print("\n🎉 All source files generated successfully!")
-          PYEOF
-
-      # ─────────────────────────────────────────────
-      # STEP 2: Setup Android SDK
-      # ─────────────────────────────────────────────
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android licenses
-        run: yes | sdkmanager --licenses || true
-
-      # ─────────────────────────────────────────────
-      # STEP 3: Setup Gradle wrapper
-      # ─────────────────────────────────────────────
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.6'
-
-      - name: Generate Gradle wrapper
-        run: |
-          gradle wrapper --gradle-version 8.6 --distribution-type bin
-          chmod +x gradlew
-
-      # ─────────────────────────────────────────────
-      # STEP 4: Cache Gradle dependencies
-      # ─────────────────────────────────────────────
-      - name: Cache Gradle packages
+          cd NKReader
+          gradle wrapper --gradle-version 8.2 --distribution-type bin
+        env:
+          GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+
+      - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-v2-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-v2-
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-
 
-      # ─────────────────────────────────────────────
-      # STEP 5: Build debug APK
-      # ─────────────────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x NKReader/gradlew
+
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          cd NKReader
+          ./gradlew assembleDebug --no-daemon --stacktrace
         env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
-      # ─────────────────────────────────────────────
-      # STEP 6: Upload APK artifact
-      # ─────────────────────────────────────────────
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: nk-pdf-reader-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 14
+          name: NK-Reader-Debug-APK
+          path: NKReader/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
 
-      - name: Build summary
+      - name: Build Summary
         run: |
-          echo "## ✅ NK PDF Reader Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ NK Reader Build सफल भयो!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Detail |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| PDF Engine | Apache PDFBox Android 2.0.27.0 |" >> $GITHUB_STEP_SUMMARY
-          echo "| OCR Engine | Google ML Kit (Latin + Devanagari) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Min SDK | 26 (Android 8.0) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Target SDK | 34 (Android 14) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Accessibility | TalkBack + AccessibilityService |" >> $GITHUB_STEP_SUMMARY
-          echo "| TTS | Android TextToSpeech |" >> $GITHUB_STEP_SUMMARY
-          APK_SIZE=$(du -sh app/build/outputs/apk/debug/app-debug.apk 2>/dev/null | cut -f1 || echo "N/A")
-          echo "| APK Size | $APK_SIZE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Info | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| App | NK Reader |" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | com.nareshkushmi.nkreader |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | Debug |" >> $GITHUB_STEP_SUMMARY
+          echo "| APK | app-debug.apk |" >> $GITHUB_STEP_SUMMARY
