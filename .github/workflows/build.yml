@@ -79,6 +79,7 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
+                  maven { url 'https://jitpack.io' }
               }
           }
           rootProject.name = "NKReader"
@@ -176,7 +177,7 @@ jobs:
               implementation 'androidx.datastore:datastore-preferences:1.0.0'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
               implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
-              implementation 'cz.adaptech.tesseract4android:tesseract4android:4.7.0'
+              implementation 'com.github.adaptech-cz:Tesseract4Android:4.9.0'
               debugImplementation 'androidx.compose.ui:ui-tooling'
               debugImplementation 'androidx.compose.ui:ui-test-manifest'
           }
@@ -801,7 +802,8 @@ jobs:
 
                   viewModelScope.launch {
                       application.dataStore.data
-                          .map { it[AppSettings.FONT_SIZE_KEY] ?: AppSettings.DEFAULT_FONT_SIZE }
+                          .map { it[AppSettings.FONT_SIZE_KEY]
+                              ?: AppSettings.DEFAULT_FONT_SIZE }
                           .distinctUntilChanged()
                           .collect { size ->
                               _uiState.update { it.copy(fontSize = size) }
@@ -852,7 +854,9 @@ jobs:
                   val pages    = mutableListOf<String>()
                   for (i in 0 until renderer.pageCount) {
                       _uiState.update {
-                          it.copy(progress = "Page ${i+1}/${renderer.pageCount} processing...")
+                          it.copy(
+                              progress = "Page ${i+1}/${renderer.pageCount} processing..."
+                          )
                       }
                       val page  = renderer.openPage(i)
                       val scale = 2.0f
@@ -891,7 +895,7 @@ jobs:
                               app.assets.open("tessdata/$lang.traineddata")
                                   .copyTo(dest.outputStream())
                           } catch (e: Exception) {
-                              Log.w("OCR", "traineddata copy failed for $lang: ${e.message}")
+                              Log.w("OCR", "copy failed: ${e.message}")
                           }
                       }
                   }
@@ -900,7 +904,9 @@ jobs:
                       if (tess.init(tessDir.absolutePath, "nep+eng")) {
                           tess.setImage(bmp)
                           val text = tess.utF8Text ?: ""
-                          _uiState.update { it.copy(progress = "Page $page/$total done") }
+                          _uiState.update {
+                              it.copy(progress = "Page $page/$total done")
+                          }
                           text.trim()
                       } else {
                           "OCR initialization failed"
@@ -995,7 +1001,10 @@ jobs:
                                   viewModel.stopSpeech()
                                   onNavigateBack()
                               }) {
-                                  Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                  Icon(
+                                      Icons.Default.ArrowBack,
+                                      contentDescription = "Back"
+                                  )
                               }
                           },
                           actions = {
@@ -1034,7 +1043,9 @@ jobs:
                   },
                   bottomBar = {
                       if (uiState.pages.size > 1) {
-                          BottomAppBar(containerColor = MaterialTheme.colorScheme.surface) {
+                          BottomAppBar(
+                              containerColor = MaterialTheme.colorScheme.surface
+                          ) {
                               Row(
                                   modifier              = Modifier.fillMaxWidth(),
                                   horizontalArrangement = Arrangement.SpaceBetween,
@@ -1075,7 +1086,7 @@ jobs:
                       when {
                           uiState.isProcessing && uiState.pages.isEmpty() -> {
                               Column(
-                                  modifier            = Modifier.align(Alignment.Center),
+                                  modifier = Modifier.align(Alignment.Center),
                                   horizontalAlignment = Alignment.CenterHorizontally
                               ) {
                                   CircularProgressIndicator()
@@ -1141,7 +1152,7 @@ jobs:
                                                   Icons.Default.VolumeUp,
                                                   contentDescription = null,
                                                   modifier = Modifier.size(16.dp),
-                                                  tint     = MaterialTheme.colorScheme.primary
+                                                  tint = MaterialTheme.colorScheme.primary
                                               )
                                               Spacer(Modifier.width(8.dp))
                                               Text(
@@ -1151,7 +1162,7 @@ jobs:
                                               )
                                               Spacer(Modifier.weight(1f))
                                               TextButton(
-                                                  onClick        = { viewModel.stopSpeech() },
+                                                  onClick = { viewModel.stopSpeech() },
                                                   contentPadding = PaddingValues(0.dp)
                                               ) {
                                                   Text(
@@ -1234,7 +1245,8 @@ jobs:
                               it.copy(
                                   fontSize          = prefs[AppSettings.FONT_SIZE_KEY]
                                                       ?: AppSettings.DEFAULT_FONT_SIZE,
-                                  isDarkMode        = prefs[AppSettings.DARK_MODE_KEY] ?: false,
+                                  isDarkMode        = prefs[AppSettings.DARK_MODE_KEY]
+                                                      ?: false,
                                   selectedTtsEngine = prefs[AppSettings.TTS_ENGINE_KEY]
                                                       ?: AppSettings.DEFAULT_TTS_ENGINE,
                                   ttsPitch          = prefs[AppSettings.TTS_PITCH_KEY]
@@ -1382,7 +1394,10 @@ jobs:
                           },
                           navigationIcon = {
                               IconButton(onClick = onNavigateBack) {
-                                  Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                  Icon(
+                                      Icons.Default.ArrowBack,
+                                      contentDescription = "Back"
+                                  )
                               }
                           },
                           colors = TopAppBarDefaults.topAppBarColors(
@@ -1411,7 +1426,9 @@ jobs:
                           onDismiss        = { viewModel.dismissEngineDropdown() },
                           onEngineSelected = { viewModel.selectTtsEngine(it) }
                       )
-                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                      HorizontalDivider(
+                          modifier = Modifier.padding(horizontal = 16.dp)
+                      )
                       SliderSettingItem(
                           label         = "Reading Speed",
                           value         = state.ttsSpeed,
@@ -1421,7 +1438,9 @@ jobs:
                           icon          = Icons.Default.Speed,
                           onValueChange = { viewModel.updateSpeed(it) }
                       )
-                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                      HorizontalDivider(
+                          modifier = Modifier.padding(horizontal = 16.dp)
+                      )
                       SliderSettingItem(
                           label         = "Voice Pitch",
                           value         = state.ttsPitch,
@@ -1431,7 +1450,9 @@ jobs:
                           icon          = Icons.Default.Tune,
                           onValueChange = { viewModel.updatePitch(it) }
                       )
-                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                      HorizontalDivider(
+                          modifier = Modifier.padding(horizontal = 16.dp)
+                      )
                       ListItem(
                           headlineContent   = { Text("Manage TTS Engines") },
                           supportingContent = {
@@ -1462,11 +1483,15 @@ jobs:
                           icon          = Icons.Default.FormatSize,
                           onValueChange = { viewModel.updateFontSize(it) }
                       )
-                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                      HorizontalDivider(
+                          modifier = Modifier.padding(horizontal = 16.dp)
+                      )
                       ListItem(
                           headlineContent   = { Text("Dark Mode") },
-                          supportingContent = { Text("Switch between light and dark theme") },
-                          leadingContent    = {
+                          supportingContent = {
+                              Text("Switch between light and dark theme")
+                          },
+                          leadingContent = {
                               Icon(Icons.Default.DarkMode, contentDescription = null)
                           },
                           trailingContent = {
@@ -1573,7 +1598,7 @@ jobs:
                                                   Icon(
                                                       Icons.Default.Stars,
                                                       contentDescription = "Recommended",
-                                                      tint     = MaterialTheme.colorScheme.primary,
+                                                      tint = MaterialTheme.colorScheme.primary,
                                                       modifier = Modifier.size(16.dp)
                                                   )
                                                   Spacer(Modifier.width(6.dp))
@@ -1708,7 +1733,7 @@ jobs:
           """)
 
           print("All files generated successfully!")
-          print("TTS Engine Selection feature included!")
+          print("Tesseract4Android version: 4.9.0")
 
           PYTHON_SCRIPT_END
           python3 generate_project.py
@@ -1720,68 +1745,18 @@ jobs:
                -o NKReader/app/src/main/assets/tessdata/nep.traineddata
           curl -L "https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata" \
                -o NKReader/app/src/main/assets/tessdata/eng.traineddata
+          echo "Tessdata files:"
           ls -lh NKReader/app/src/main/assets/tessdata/
 
-      - name: Setup Gradle wrapper script
+      - name: Install Gradle 8.4 and create wrapper
         run: |
-          cd NKReader
-          mkdir -p gradle/wrapper
-
-          # gradlew script create
-          cat > gradlew << 'GRADLEW_END'
-          #!/bin/sh
-          SCRIPT_DIR=$(dirname "$0")
-          exec "$SCRIPT_DIR/gradle/wrapper/gradle-wrapper.jar" "$@" 2>/dev/null || true
-
-          DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
-          APP_NAME="Gradle"
-          APP_BASE_NAME=$(basename "$0")
-
-          CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
-
-          exec "$JAVACMD" $DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS \
-              "-Dorg.gradle.appname=$APP_BASE_NAME" \
-              -classpath "$CLASSPATH" \
-              org.gradle.wrapper.GradleWrapperMain "$@"
-          GRADLEW_END
-
-          chmod +x gradlew
-
-          # gradle-wrapper.jar download
-          curl -L \
-            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" \
-            -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || \
-          curl -L \
-            "https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar" \
-            -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || true
-
-          # Official gradle wrapper jar download
-          if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
-            echo "Downloading gradle wrapper jar from official source..."
-            curl -L \
-              "https://services.gradle.org/distributions/gradle-8.4-bin.zip" \
-              -o /tmp/gradle-dist.zip
-            unzip -p /tmp/gradle-dist.zip \
-              "gradle-8.4/lib/plugins/gradle-wrapper-*.jar" \
-              > gradle/wrapper/gradle-wrapper.jar 2>/dev/null || true
-          fi
-
-          ls -lh gradle/wrapper/
-
-      - name: Install Gradle 8.4 directly
-        run: |
-          # Gradle directly install garni sabhabhanda reliable tarika
           curl -L "https://services.gradle.org/distributions/gradle-8.4-bin.zip" \
                -o /tmp/gradle-8.4-bin.zip
           unzip -q /tmp/gradle-8.4-bin.zip -d /tmp/gradle-dist
           export GRADLE_HOME=/tmp/gradle-dist/gradle-8.4
           export PATH=$GRADLE_HOME/bin:$PATH
-
           cd NKReader
-
-          # Wrapper generate garne
           gradle wrapper --gradle-version 8.4 --distribution-type bin
-
           chmod +x gradlew
           echo "Gradle wrapper created:"
           ls -lh gradle/wrapper/
@@ -1821,4 +1796,6 @@ jobs:
           echo "| APK | app-release.apk |" >> $GITHUB_STEP_SUMMARY
           echo "| TTS | Google TTS Default + Engine Selection |" >> $GITHUB_STEP_SUMMARY
           echo "| OCR | Nepali + English Tesseract |" >> $GITHUB_STEP_SUMMARY
-          echo "| Features | PDF, Image OCR, TTS Selection, Dark Mode, Font Size |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tesseract | com.github.adaptech-cz:Tesseract4Android:4.9.0 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gradle | 8.4 |" >> $GITHUB_STEP_SUMMARY
+          echo "| JitPack | Enabled |" >> $GITHUB_STEP_SUMMARY
