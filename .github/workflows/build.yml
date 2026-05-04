@@ -93,10 +93,23 @@ jobs:
           android.enableJetifier=true
           kotlin.code.style=official
           android.nonTransitiveRClass=true
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m
+          org.gradle.daemon=false
           """)
 
           # ════════════════════════════════════════════════════════
-          # 4. app/build.gradle
+          # 4. gradle/wrapper/gradle-wrapper.properties
+          # ════════════════════════════════════════════════════════
+          write(f"{ROOT}/gradle/wrapper/gradle-wrapper.properties", """\
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          """)
+
+          # ════════════════════════════════════════════════════════
+          # 5. app/build.gradle
           # ════════════════════════════════════════════════════════
           write(f"{APP}/build.gradle", """\
           plugins {
@@ -170,7 +183,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 5. AndroidManifest.xml
+          # 6. AndroidManifest.xml
           # ════════════════════════════════════════════════════════
           write(f"{APP}/src/main/AndroidManifest.xml", """\
           <?xml version="1.0" encoding="utf-8"?>
@@ -215,7 +228,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 6. Resources
+          # 7. Resources
           # ════════════════════════════════════════════════════════
           write(f"{RES}/values/strings.xml", """\
           <?xml version="1.0" encoding="utf-8"?>
@@ -241,7 +254,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 7. Launcher Icon
+          # 8. Launcher Icon
           # ════════════════════════════════════════════════════════
           def make_icon(size):
               img  = Image.new("RGBA", (size, size), (63, 81, 181, 255))
@@ -272,7 +285,7 @@ jobs:
                   make_icon(sz).save(path)
 
           # ════════════════════════════════════════════════════════
-          # 8. proguard-rules.pro
+          # 9. proguard-rules.pro
           # ════════════════════════════════════════════════════════
           write(f"{APP}/proguard-rules.pro", """\
           -keep class com.googlecode.tesseract.android.** { *; }
@@ -281,7 +294,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-A. MainActivity.kt
+          # 10-A. MainActivity.kt
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/MainActivity.kt", """\
           package com.nareshkushmi.nkreader
@@ -317,7 +330,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-B. Theme
+          # 10-B. Theme
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/theme/NKReaderTheme.kt", """\
           package com.nareshkushmi.nkreader.ui.theme
@@ -357,7 +370,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-C. Navigation
+          # 10-C. Navigation
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/navigation/NKReaderNavHost.kt", """\
           package com.nareshkushmi.nkreader.ui.navigation
@@ -380,7 +393,7 @@ jobs:
           fun NKReaderNavHost() {
               val navController = rememberNavController()
               NavHost(
-                  navController  = navController,
+                  navController    = navController,
                   startDestination = Screen.Home.route
               ) {
                   composable(Screen.Home.route) {
@@ -405,7 +418,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-D. AppSettings DataStore
+          # 10-D. AppSettings DataStore
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/data/AppSettings.kt", """\
           package com.nareshkushmi.nkreader.data
@@ -420,16 +433,12 @@ jobs:
           )
 
           object AppSettings {
-              // Display
               val FONT_SIZE_KEY  = floatPreferencesKey("font_size")
               val DARK_MODE_KEY  = booleanPreferencesKey("dark_mode")
-
-              // TTS
               val TTS_ENGINE_KEY = stringPreferencesKey("tts_engine")
               val TTS_PITCH_KEY  = floatPreferencesKey("tts_pitch")
               val TTS_SPEED_KEY  = floatPreferencesKey("tts_speed")
 
-              // Defaults
               const val DEFAULT_FONT_SIZE  = 16f
               const val DEFAULT_TTS_ENGINE = "com.google.android.tts"
               const val DEFAULT_TTS_PITCH  = 1.0f
@@ -438,7 +447,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-E. TtsManager
+          # 10-E. TtsManager
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/tts/TtsManager.kt", """\
           package com.nareshkushmi.nkreader.tts
@@ -472,13 +481,11 @@ jobs:
               private val _isReady = MutableStateFlow(false)
               val isReady: StateFlow<Boolean> = _isReady
 
-              // Available engines list garne
               fun getAvailableEngines(): List<TtsEngine> {
                   return try {
                       val probe = TextToSpeech(context, null)
                       val list  = probe.engines.map { TtsEngine(it.name, it.label) }
                       probe.shutdown()
-                      // Google TTS sabhaibanda maathi rakhne
                       list.sortedByDescending {
                           it.packageName == "com.google.android.tts"
                       }
@@ -488,11 +495,10 @@ jobs:
                   }
               }
 
-              // Engine change huda pani call garne
               fun initialize(
-                  enginePackage: String       = "com.google.android.tts",
-                  pitch        : Float        = 1.0f,
-                  speed        : Float        = 1.0f,
+                  enginePackage: String        = "com.google.android.tts",
+                  pitch        : Float         = 1.0f,
+                  speed        : Float         = 1.0f,
                   onReady      : (() -> Unit)? = null,
                   onError      : (() -> Unit)? = null
               ) {
@@ -509,7 +515,6 @@ jobs:
                           }
                           tts?.setPitch(pitch)
                           tts?.setSpeechRate(speed)
-
                           tts?.setOnUtteranceProgressListener(
                               object : UtteranceProgressListener() {
                                   override fun onStart(id: String?) {
@@ -523,11 +528,9 @@ jobs:
                                   }
                               }
                           )
-
                           isInitialized  = true
                           _isReady.value = true
                           onReady?.invoke()
-
                           pendingText?.let {
                               speak(it)
                               pendingText = null
@@ -565,8 +568,8 @@ jobs:
                       tts?.stop()
                       tts?.shutdown()
                   } catch (_: Exception) {}
-                  tts            = null
-                  isInitialized  = false
+                  tts               = null
+                  isInitialized     = false
                   _isSpeaking.value = false
                   _isReady.value    = false
               }
@@ -574,7 +577,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-F. HomeViewModel
+          # 10-F. HomeViewModel
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/home/HomeViewModel.kt", """\
           package com.nareshkushmi.nkreader.ui.home
@@ -600,7 +603,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-G. HomeScreen
+          # 10-G. HomeScreen
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/home/HomeScreen.kt", """\
           package com.nareshkushmi.nkreader.ui.home
@@ -666,7 +669,7 @@ jobs:
                   }
               ) { padding ->
                   Box(
-                      modifier        = Modifier
+                      modifier         = Modifier
                           .fillMaxSize()
                           .padding(padding),
                       contentAlignment = Alignment.Center
@@ -682,22 +685,18 @@ jobs:
                               modifier = Modifier.size(96.dp),
                               tint     = MaterialTheme.colorScheme.primary
                           )
-
                           Text(
                               "NK Reader",
                               style      = MaterialTheme.typography.headlineMedium,
                               fontWeight = FontWeight.Bold
                           )
-
                           Text(
                               "PDF र Image files पढ्नुहोस्\\nNepali OCR र Text-to-Speech सहित",
                               style     = MaterialTheme.typography.bodyLarge,
                               textAlign = TextAlign.Center,
                               color     = MaterialTheme.colorScheme.onSurfaceVariant
                           )
-
                           Spacer(Modifier.height(8.dp))
-
                           Button(
                               onClick  = {
                                   filePicker.launch(
@@ -715,7 +714,6 @@ jobs:
                                   style = MaterialTheme.typography.titleMedium
                               )
                           }
-
                           OutlinedButton(
                               onClick  = onOpenSettings,
                               modifier = Modifier
@@ -736,7 +734,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-H. ReaderViewModel
+          # 10-H. ReaderViewModel
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/reader/ReaderViewModel.kt", """\
           package com.nareshkushmi.nkreader.ui.reader
@@ -746,7 +744,6 @@ jobs:
           import android.graphics.BitmapFactory
           import android.graphics.pdf.PdfRenderer
           import android.net.Uri
-          import android.os.ParcelFileDescriptor
           import android.util.Log
           import androidx.lifecycle.AndroidViewModel
           import androidx.lifecycle.viewModelScope
@@ -780,8 +777,6 @@ jobs:
               val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
               init {
-                  // Settings bata TTS engine observe gareko
-                  // Engine change huda automatically reinitialize hunchha
                   viewModelScope.launch {
                       application.dataStore.data
                           .map { prefs ->
@@ -804,7 +799,6 @@ jobs:
                           }
                   }
 
-                  // Font size observe
                   viewModelScope.launch {
                       application.dataStore.data
                           .map { it[AppSettings.FONT_SIZE_KEY] ?: AppSettings.DEFAULT_FONT_SIZE }
@@ -832,10 +826,10 @@ jobs:
                           }
                           _uiState.update {
                               it.copy(
-                                  pages       = pages,
-                                  currentPage = 0,
+                                  pages        = pages,
+                                  currentPage  = 0,
                                   isProcessing = false,
-                                  progress    = ""
+                                  progress     = ""
                               )
                           }
                       } catch (e: Exception) {
@@ -856,7 +850,6 @@ jobs:
                               ?: return emptyList()
                   val renderer = PdfRenderer(pfd)
                   val pages    = mutableListOf<String>()
-
                   for (i in 0 until renderer.pageCount) {
                       _uiState.update {
                           it.copy(progress = "Page ${i+1}/${renderer.pageCount} processing...")
@@ -891,7 +884,6 @@ jobs:
                   val app      = getApplication<Application>()
                   val tessDir  = File(app.filesDir, "tesseract").apply { mkdirs() }
                   val tessData = File(tessDir, "tessdata").apply { mkdirs() }
-
                   for (lang in listOf("nep", "eng")) {
                       val dest = File(tessData, "$lang.traineddata")
                       if (!dest.exists()) {
@@ -903,15 +895,12 @@ jobs:
                           }
                       }
                   }
-
                   val tess = TessBaseAPI()
                   return try {
                       if (tess.init(tessDir.absolutePath, "nep+eng")) {
                           tess.setImage(bmp)
                           val text = tess.utF8Text ?: ""
-                          _uiState.update {
-                              it.copy(progress = "Page $page/$total done")
-                          }
+                          _uiState.update { it.copy(progress = "Page $page/$total done") }
                           text.trim()
                       } else {
                           "OCR initialization failed"
@@ -948,9 +937,7 @@ jobs:
                   if (isSpeaking.value) stopSpeech() else ttsManager.speak(text)
               }
 
-              fun stopSpeech() {
-                  ttsManager.stop()
-              }
+              fun stopSpeech() { ttsManager.stop() }
 
               override fun onCleared() {
                   super.onCleared()
@@ -960,7 +947,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-I. ReaderScreen
+          # 10-I. ReaderScreen
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/reader/ReaderScreen.kt", """\
           package com.nareshkushmi.nkreader.ui.reader
@@ -991,7 +978,6 @@ jobs:
               val isSpeaking by viewModel.isSpeaking.collectAsState()
               val isTtsReady by viewModel.isTtsReady.collectAsState()
               val scrollState = rememberScrollState()
-
               val currentText = uiState.pages.getOrNull(uiState.currentPage) ?: ""
 
               Scaffold(
@@ -1009,10 +995,7 @@ jobs:
                                   viewModel.stopSpeech()
                                   onNavigateBack()
                               }) {
-                                  Icon(
-                                      Icons.Default.ArrowBack,
-                                      contentDescription = "Back"
-                                  )
+                                  Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                               }
                           },
                           actions = {
@@ -1051,9 +1034,7 @@ jobs:
                   },
                   bottomBar = {
                       if (uiState.pages.size > 1) {
-                          BottomAppBar(
-                              containerColor = MaterialTheme.colorScheme.surface
-                          ) {
+                          BottomAppBar(containerColor = MaterialTheme.colorScheme.surface) {
                               Row(
                                   modifier              = Modifier.fillMaxWidth(),
                                   horizontalArrangement = Arrangement.SpaceBetween,
@@ -1145,8 +1126,6 @@ jobs:
                                           color = MaterialTheme.colorScheme.onSurfaceVariant
                                       )
                                   }
-
-                                  // TTS playing indicator
                                   if (isSpeaking) {
                                       Surface(
                                           color    = MaterialTheme.colorScheme.primaryContainer,
@@ -1183,7 +1162,6 @@ jobs:
                                           }
                                       }
                                   }
-
                                   Column(
                                       modifier = Modifier
                                           .fillMaxSize()
@@ -1215,7 +1193,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-J. SettingsViewModel
+          # 10-J. SettingsViewModel
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/settings/SettingsViewModel.kt", """\
           package com.nareshkushmi.nkreader.ui.settings
@@ -1233,13 +1211,13 @@ jobs:
           import kotlinx.coroutines.launch
 
           data class SettingsUiState(
-              val fontSize                   : Float          = AppSettings.DEFAULT_FONT_SIZE,
-              val isDarkMode                 : Boolean        = false,
-              val selectedTtsEngine          : String         = AppSettings.DEFAULT_TTS_ENGINE,
-              val ttsPitch                   : Float          = AppSettings.DEFAULT_TTS_PITCH,
-              val ttsSpeed                   : Float          = AppSettings.DEFAULT_TTS_SPEED,
+              val fontSize                   : Float           = AppSettings.DEFAULT_FONT_SIZE,
+              val isDarkMode                 : Boolean         = false,
+              val selectedTtsEngine          : String          = AppSettings.DEFAULT_TTS_ENGINE,
+              val ttsPitch                   : Float           = AppSettings.DEFAULT_TTS_PITCH,
+              val ttsSpeed                   : Float           = AppSettings.DEFAULT_TTS_SPEED,
               val availableTtsEngines        : List<TtsEngine> = emptyList(),
-              val isTtsEngineDropdownExpanded: Boolean        = false
+              val isTtsEngineDropdownExpanded: Boolean         = false
           )
 
           class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -1367,7 +1345,7 @@ jobs:
           """)
 
           # ════════════════════════════════════════════════════════
-          # 9-K. SettingsScreen
+          # 10-K. SettingsScreen
           # ════════════════════════════════════════════════════════
           write(f"{SRC}/ui/settings/SettingsScreen.kt", """\
           package com.nareshkushmi.nkreader.ui.settings
@@ -1404,10 +1382,7 @@ jobs:
                           },
                           navigationIcon = {
                               IconButton(onClick = onNavigateBack) {
-                                  Icon(
-                                      Icons.Default.ArrowBack,
-                                      contentDescription = "Back"
-                                  )
+                                  Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                               }
                           },
                           colors = TopAppBarDefaults.topAppBarColors(
@@ -1424,14 +1399,10 @@ jobs:
                           .padding(padding)
                           .verticalScroll(rememberScrollState())
                   ) {
-
-                      // ── Text to Speech Section ──────────────────────
                       SectionHeader(
                           title = "Text to Speech",
                           icon  = Icons.Default.RecordVoiceOver
                       )
-
-                      // TTS Engine Selector
                       TtsEngineSelectorCard(
                           availableEngines = state.availableTtsEngines,
                           selectedEngine   = state.selectedTtsEngine,
@@ -1440,12 +1411,7 @@ jobs:
                           onDismiss        = { viewModel.dismissEngineDropdown() },
                           onEngineSelected = { viewModel.selectTtsEngine(it) }
                       )
-
-                      HorizontalDivider(
-                          modifier = Modifier.padding(horizontal = 16.dp)
-                      )
-
-                      // Reading Speed
+                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                       SliderSettingItem(
                           label         = "Reading Speed",
                           value         = state.ttsSpeed,
@@ -1455,12 +1421,7 @@ jobs:
                           icon          = Icons.Default.Speed,
                           onValueChange = { viewModel.updateSpeed(it) }
                       )
-
-                      HorizontalDivider(
-                          modifier = Modifier.padding(horizontal = 16.dp)
-                      )
-
-                      // Voice Pitch
+                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                       SliderSettingItem(
                           label         = "Voice Pitch",
                           value         = state.ttsPitch,
@@ -1470,12 +1431,7 @@ jobs:
                           icon          = Icons.Default.Tune,
                           onValueChange = { viewModel.updatePitch(it) }
                       )
-
-                      HorizontalDivider(
-                          modifier = Modifier.padding(horizontal = 16.dp)
-                      )
-
-                      // System TTS Settings
+                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                       ListItem(
                           headlineContent   = { Text("Manage TTS Engines") },
                           supportingContent = {
@@ -1492,16 +1448,11 @@ jobs:
                               viewModel.openSystemTtsSettings()
                           }
                       )
-
                       Spacer(Modifier.height(8.dp))
-
-                      // ── Display Section ─────────────────────────────
                       SectionHeader(
                           title = "Display",
                           icon  = Icons.Default.DisplaySettings
                       )
-
-                      // Font Size
                       SliderSettingItem(
                           label         = "Font Size",
                           value         = state.fontSize,
@@ -1511,18 +1462,11 @@ jobs:
                           icon          = Icons.Default.FormatSize,
                           onValueChange = { viewModel.updateFontSize(it) }
                       )
-
-                      HorizontalDivider(
-                          modifier = Modifier.padding(horizontal = 16.dp)
-                      )
-
-                      // Dark Mode
+                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                       ListItem(
                           headlineContent   = { Text("Dark Mode") },
-                          supportingContent = {
-                              Text("Switch between light and dark theme")
-                          },
-                          leadingContent = {
+                          supportingContent = { Text("Switch between light and dark theme") },
+                          leadingContent    = {
                               Icon(Icons.Default.DarkMode, contentDescription = null)
                           },
                           trailingContent = {
@@ -1532,13 +1476,11 @@ jobs:
                               )
                           }
                       )
-
                       Spacer(Modifier.height(32.dp))
                   }
               }
           }
 
-          // ── TTS Engine Selector Card ──────────────────────────────────
           @Composable
           private fun TtsEngineSelectorCard(
               availableEngines : List<TtsEngine>,
@@ -1578,9 +1520,7 @@ jobs:
                           )
                       }
                   }
-
                   Spacer(Modifier.height(10.dp))
-
                   Box {
                       OutlinedButton(
                           onClick  = onToggle,
@@ -1603,7 +1543,6 @@ jobs:
                               contentDescription = null
                           )
                       }
-
                       DropdownMenu(
                           expanded         = isExpanded,
                           onDismissRequest = onDismiss,
@@ -1625,7 +1564,6 @@ jobs:
                                   val isSelected  = engine.packageName == selectedEngine
                                   val isGoogleTts =
                                       engine.packageName == "com.google.android.tts"
-
                                   DropdownMenuItem(
                                       text = {
                                           Row(
@@ -1652,10 +1590,11 @@ jobs:
                                                   )
                                                   if (isGoogleTts) {
                                                       Text(
-                                                          "Recommended  Default",
+                                                          "Recommended - Default",
                                                           style = MaterialTheme.typography
                                                               .labelSmall,
-                                                          color = MaterialTheme.colorScheme.primary
+                                                          color = MaterialTheme
+                                                              .colorScheme.primary
                                                       )
                                                   }
                                               }
@@ -1676,7 +1615,6 @@ jobs:
                           }
                       }
                   }
-
                   Spacer(Modifier.height(4.dp))
                   Text(
                       "Default: Google Text-to-Speech",
@@ -1687,7 +1625,6 @@ jobs:
               }
           }
 
-          // ── Slider Setting Item ───────────────────────────────────────
           @Composable
           private fun SliderSettingItem(
               label        : String,
@@ -1740,7 +1677,6 @@ jobs:
               )
           }
 
-          // ── Section Header ────────────────────────────────────────────
           @Composable
           private fun SectionHeader(title: String, icon: ImageVector) {
               Row(
@@ -1771,7 +1707,8 @@ jobs:
           }
           """)
 
-          print("Project files generated successfully!")
+          print("All files generated successfully!")
+          print("TTS Engine Selection feature included!")
 
           PYTHON_SCRIPT_END
           python3 generate_project.py
@@ -1785,10 +1722,70 @@ jobs:
                -o NKReader/app/src/main/assets/tessdata/eng.traineddata
           ls -lh NKReader/app/src/main/assets/tessdata/
 
-      - name: Setup Gradle wrapper
+      - name: Setup Gradle wrapper script
         run: |
           cd NKReader
-          gradle wrapper --gradle-version 8.2 --distribution-type bin
+          mkdir -p gradle/wrapper
+
+          # gradlew script create
+          cat > gradlew << 'GRADLEW_END'
+          #!/bin/sh
+          SCRIPT_DIR=$(dirname "$0")
+          exec "$SCRIPT_DIR/gradle/wrapper/gradle-wrapper.jar" "$@" 2>/dev/null || true
+
+          DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+          APP_NAME="Gradle"
+          APP_BASE_NAME=$(basename "$0")
+
+          CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+
+          exec "$JAVACMD" $DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS \
+              "-Dorg.gradle.appname=$APP_BASE_NAME" \
+              -classpath "$CLASSPATH" \
+              org.gradle.wrapper.GradleWrapperMain "$@"
+          GRADLEW_END
+
+          chmod +x gradlew
+
+          # gradle-wrapper.jar download
+          curl -L \
+            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || \
+          curl -L \
+            "https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar 2>/dev/null || true
+
+          # Official gradle wrapper jar download
+          if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Downloading gradle wrapper jar from official source..."
+            curl -L \
+              "https://services.gradle.org/distributions/gradle-8.4-bin.zip" \
+              -o /tmp/gradle-dist.zip
+            unzip -p /tmp/gradle-dist.zip \
+              "gradle-8.4/lib/plugins/gradle-wrapper-*.jar" \
+              > gradle/wrapper/gradle-wrapper.jar 2>/dev/null || true
+          fi
+
+          ls -lh gradle/wrapper/
+
+      - name: Install Gradle 8.4 directly
+        run: |
+          # Gradle directly install garni sabhabhanda reliable tarika
+          curl -L "https://services.gradle.org/distributions/gradle-8.4-bin.zip" \
+               -o /tmp/gradle-8.4-bin.zip
+          unzip -q /tmp/gradle-8.4-bin.zip -d /tmp/gradle-dist
+          export GRADLE_HOME=/tmp/gradle-dist/gradle-8.4
+          export PATH=$GRADLE_HOME/bin:$PATH
+
+          cd NKReader
+
+          # Wrapper generate garne
+          gradle wrapper --gradle-version 8.4 --distribution-type bin
+
+          chmod +x gradlew
+          echo "Gradle wrapper created:"
+          ls -lh gradle/wrapper/
+          cat gradle/wrapper/gradle-wrapper.properties
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -1822,6 +1819,6 @@ jobs:
           echo "| App | NK Reader |" >> $GITHUB_STEP_SUMMARY
           echo "| Package | com.nareshkushmi.nkreader |" >> $GITHUB_STEP_SUMMARY
           echo "| APK | app-release.apk |" >> $GITHUB_STEP_SUMMARY
-          echo "| TTS | Google TTS (Default) + Engine Selection |" >> $GITHUB_STEP_SUMMARY
-          echo "| OCR | Nepali + English (Tesseract) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Features | PDF Reader, Image OCR, TTS, Dark Mode |" >> $GITHUB_STEP_SUMMARY
+          echo "| TTS | Google TTS Default + Engine Selection |" >> $GITHUB_STEP_SUMMARY
+          echo "| OCR | Nepali + English Tesseract |" >> $GITHUB_STEP_SUMMARY
+          echo "| Features | PDF, Image OCR, TTS Selection, Dark Mode, Font Size |" >> $GITHUB_STEP_SUMMARY
