@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Kotlin Source with JavaScript Footer Killer..."
+        echo "Generating Kotlin Source with HF Header and Gradio Footer Killer..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
@@ -235,12 +235,30 @@ jobs:
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 
-                                // यो इन्जेक्सनले माथिको प्याडिङ सच्याउँछ र 'Built with Gradio' फुटर पूर्ण रूपमा ब्लक गर्छ
+                                // यो अत्याधुनिक स्क्रिप्टले CSS थप्छ र Hugging Face को सम्पूर्ण Header ब्लक नष्ट गर्छ
                                 val hideElementsJS = """
                                     (function() {
                                         var style = document.createElement('style');
-                                        style.innerHTML = 'html, body { padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio.app"], .built-with { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }';
+                                        style.innerHTML = 'html, body { padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio.app"], .built-with { display: none !important; visibility: hidden !important; } header, [class*="header"], .hf-header { display: none !important; visibility: hidden !important; }';
                                         document.head.appendChild(style);
+
+                                        function destroyHuggingFaceHeader() {
+                                            var bodyChildren = document.body.children;
+                                            for (var i = 0; i < bodyChildren.length; i++) {
+                                                var child = bodyChildren[i];
+                                                // यदि कुनै ब्लकमा Tech-Mafia26 लेखिएको छ तर त्यो मूल एप्लिकेसन होइन भने त्यसलाई हटाउने
+                                                if (child.innerHTML && child.innerHTML.includes("Tech-Mafia26") && !child.querySelector(".gradio-container")) {
+                                                    child.style.setProperty("display", "none", "important");
+                                                    child.style.setProperty("visibility", "hidden", "important");
+                                                }
+                                            }
+                                        }
+                                        
+                                        // विभिन्न समय अन्तरालमा कोड चलाउने ताकि बिस्तारै लोड भए पनि हेडर गायब होस्
+                                        destroyHuggingFaceHeader();
+                                        setTimeout(destroyHuggingFaceHeader, 300);
+                                        setTimeout(destroyHuggingFaceHeader, 1000);
+                                        setTimeout(destroyHuggingFaceHeader, 2500);
                                     })();
                                 """.trimIndent()
                                 
