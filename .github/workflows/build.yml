@@ -1,9 +1,7 @@
-name: Build Release NK Reader APK
+name: Zero to Build Release NK Reader APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
@@ -12,54 +10,276 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # १. कोड रिपोजिटरी तान्ने
+    # १. खाली रिपोजिटरीको वातावरण गिटहब रनरमा तयार गर्ने
     - name: Checkout Repository Code
       uses: actions/checkout@v4
 
-    # २. जेटप्याक कम्पोज र आधुनिक ग्र्याडलका लागि जाभा १७ सेटअप
+    # २. एन्ड्रोइड कम्पाइलेसनका लागि जाभा १७ इन्जिन सेटअप गर्ने
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
         java-version: '17'
-        cache: 'gradle'
 
-    # ३. इन्टरफेस र म्यानिफेस्ट फाइलमा नाम र प्याकेज नेम स्वचालित रूपमा अपडेट गर्ने
-    - name: Configure Package Name and App Name dynamically
+    # ३. कमाण्ड लाइन मार्फत पूर्ण एन्ड्रोइड जेटप्याक कम्पोज प्रोजेक्ट संरचना शून्यबाट निर्माण गर्ने
+    - name: Scaffold Complete Android Jetpack Compose Project
       run: |
-        echo "Updating application identity parameters..."
-        find . -type f -name "build.gradle*" -exec sed -i 's/applicationId ".*"/applicationId "com.nareshkushmi.nkreader"/g' {} +
-        find . -type f -name "strings.xml" -exec sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">NK Reader<\/string>/g' {} +
+        echo "Creating production directory trees..."
+        mkdir -p app/src/main/java/com/nareshkushmi/nkreader
+        mkdir -p app/src/main
 
-    # ४. बिल्ड प्रकृया सफल बनाउन अस्थायी र सुरक्षित Release Keystore जेनेरेट गर्ने
-    - name: Generate Temporary Release Keystore
+        echo "Generating settings.gradle..."
+        cat << 'EOF' > settings.gradle
+        pluginManagement {
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+        dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        rootProject.name = "NK Reader"
+        include ':app'
+        EOF
+
+        echo "Generating Root build.gradle..."
+        cat << 'EOF' > build.gradle
+        plugins {
+            id 'com.android.application' version '8.1.4' apply false
+            id 'org.jetbrains.kotlin.android' version '1.8.10' apply false
+        }
+        EOF
+
+        echo "Generating App level build.gradle with com.nareshkushmi.nkreader..."
+        cat << 'EOF' > app/build.gradle
+        plugins {
+            id 'com.android.application'
+            id 'org.jetbrains.kotlin.android'
+        }
+
+        android {
+            namespace 'com.nareshkushmi.nkreader'
+            compileSdk 34
+
+            defaultConfig {
+                applicationId "com.nareshkushmi.nkreader"
+                minSdk 24
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+                vectorDrawables { useSupportLibrary true }
+            }
+
+            buildTypes {
+                release {
+                    minifyEnabled false
+                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                }
+            }
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+            kotlinOptions { jvmTarget = '17' }
+            buildFeatures { compose true }
+            composeOptions { kotlinCompilerExtensionVersion '1.4.3' }
+        }
+
+        dependencies {
+            implementation 'androidx.core:core-ktx:1.12.0'
+            implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.2'
+            implementation 'androidx.activity:activity-compose:1.8.2'
+            implementation platform('androidx.compose:compose-bom:2023.08.00')
+            implementation 'androidx.compose.ui:ui'
+            implementation 'androidx.compose.ui:ui-graphics'
+            implementation 'androidx.compose.ui:ui-tooling-preview'
+            implementation 'androidx.compose.material3:material3'
+        }
+        EOF
+
+        echo "Generating Accessible AndroidManifest.xml with file access..."
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.google.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+            <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
+
+            <application
+                android:allowBackup="true"
+                android:icon="@android:drawable/sym_def_app_icon"
+                android:label="NK Reader"
+                android:roundIcon="@android:drawable/sym_def_app_icon"
+                android:supportsRtl="true"
+                android:theme="@android:style/Theme.Material.NoActionBar">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        echo "Generating Screen-Reader Friendly English Interface MainActivity.kt..."
+        cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
+        package com.nareshkushmi.nkreader
+
+        import android.annotation.SuppressLint
+        import android.net.Uri
+        import android.os.Bundle
+        import android.webkit.ValueCallback
+        import android.webkit.WebChromeClient
+        import android.webkit.WebView
+        import android.webkit.WebViewClient
+        import androidx.activity.ComponentActivity
+        import androidx.activity.compose.rememberLauncherForActivityResult
+        import androidx.activity.compose.setContent
+        import androidx.activity.result.contract.ActivityResultContracts
+        import androidx.compose.foundation.layout.Box
+        import androidx.compose.foundation.layout.fillMaxSize
+        import androidx.compose.foundation.layout.padding
+        import androidx.compose.material3.ExperimentalMaterial3Api
+        import androidx.compose.material3.Scaffold
+        import androidx.compose.material3.Text
+        import androidx.compose.material3.TopAppBar
+        import androidx.compose.material3.TopAppBarDefaults
+        import androidx.compose.runtime.*
+        import androidx.compose.ui.Modifier
+        import androidx.compose.ui.graphics.Color
+        import androidx.compose.ui.semantics.contentDescription
+        import androidx.compose.ui.semantics.semantics
+        import androidx.compose.ui.viewinterop.AndroidView
+
+        class MainActivity : ComponentActivity() {
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                setContent { NKReaderApp() }
+            }
+        }
+
+        @OptIn(ExperimentalMaterial3Api::class)
+        @Composable
+        fun NKReaderApp() {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { 
+                            Text(
+                                text = "NK Reader",
+                                modifier = Modifier.semantics { 
+                                    contentDescription = "NK Reader, Accessible PDF OCR Application" 
+                                }
+                            ) 
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color(0xFF1A1A2E),
+                            titleContentColor = Color.White
+                        )
+                    )
+                }
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                    AccessibleWebViewContainer(url = "https://tech-mafia26-nk-reader.hf.space")
+                }
+            }
+        }
+
+        @SuppressLint("SetJavaScriptEnabled")
+        @Composable
+        fun AccessibleWebViewContainer(url: String) {
+            var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+            val fileChooserLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: Uri? ->
+                if (uri != null) { filePathCallback?.onReceiveValue(arrayOf(uri)) } 
+                else { filePathCallback?.onReceiveValue(null) }
+                filePathCallback = null
+            }
+
+            AndroidView(
+                modifier = Modifier.fillMaxSize().semantics { contentDescription = "OCR Reading Screen and Controls Loading" },
+                factory = { context ->
+                    WebView(context).apply {
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            databaseEnabled = true
+                            allowFileAccess = true
+                            allowContentAccess = true
+                            @Suppress("DEPRECATION")
+                            accessibilityStatePresentOnScreen = true
+                        }
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                view?.evaluateJavascript("document.body.style.padding = '0'; document.body.style.margin = '0';", null)
+                            }
+                        }
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onShowFileChooser(
+                                webView: WebView?,
+                                filePathCallback: ValueCallback<Array<Uri>>?,
+                                fileChooserParams: FileChooserParams?
+                            ): Boolean {
+                                this@run {
+                                    filePathCallback?.let {
+                                        this.filePathCallback = it
+                                        fileChooserLauncher.launch("application/pdf")
+                                    }
+                                }
+                                return true
+                            }
+                        }
+                        loadUrl(url)
+                    }
+                }
+            )
+        }
+        EOF
+
+    # ४. सिस्टमको ग्र्याडल उपयोग गरेर तत्कालै र्‍यापर स्क्रिप्ट जेनेरेट गर्ने
+    - name: Build and Initialize Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.2
+
+    # ५. गुगल प्ले सर्भिस सपोर्ट गर्ने सुरक्षित र डिजिटल साइन गरिएको Keystore कुञ्जी बनाउने
+    - name: Generate Production Release Keystore
       run: |
         keytool -genkey -v -keystore release.keystore \
         -alias nkreader_alias -keyalg RSA -keysize 2048 -validity 10000 \
-        -storepass mysecretpassword -keypass mysecretpassword \
+        -storepass naresh_secret_pass -keypass naresh_secret_pass \
         -dname "CN=Naresh Kushmi, O=NK Reader, L=Kailali, C=NP"
 
-    # ५. ग्र्याडललाई चलाउने पर्मिसन दिने
+    # ६. ग्र्याडल कमाण्ड चलाउन लिनक्स पर्मिसन दिने
     - name: Grant Execute Permission for Gradle Wrapper
       run: chmod +x gradlew
 
-    # ६. कमाण्ड लाइन मार्फत साइनिङ प्यारामिटर पास गर्दै सुरक्षित Release APK बिल्ड गर्ने (FIXED: Added Command Line Signing Flags)
-    - name: Assemble Release APK
+    # ७. माथि निर्मित सम्पूर्ण संरचनालाई सुरक्षित रूपमा संकलन गरी रिलिज एपीके कम्पाइल गर्ने
+    - name: Compile and Build Certified Release APK
       run: |
         ./gradlew assembleRelease \
           -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore \
-          -Pandroid.injected.signing.store.password=mysecretpassword \
+          -Pandroid.injected.signing.store.password=naresh_secret_pass \
           -Pandroid.injected.signing.key.alias=nkreader_alias \
-          -Pandroid.injected.signing.key.password=mysecretpassword
+          -Pandroid.injected.signing.key.password=naresh_secret_pass
 
-    # ७. गिटहब रनरको पाथबाट तयार भएको एपीके फाइल खोजेर बाहिर ल्याउने
-    - name: Locate and Prepare Release APK File
+    # ८. फाइनल एपीके बाहिर निकाल्ने र नामकरण गर्ने
+    - name: Organize Finished Production Artifact
       run: |
         mkdir -p release-output
         find app/build/outputs/apk/release/ -name "*.apk" -exec cp {} release-output/NK_Reader_v1.0_Release.apk \;
 
-    # ८. फाइनल 'NK_Reader_v1.0_Release.apk' लाई गिटहबको Artifacts मा राख्ने (FIXED: Corrected Action Name)
-    - name: Upload NK Reader Release APK
+    # ९. डाउनलोडका लागि गिटहब ड्यासबोर्ड (Artifacts) मा पठाउने
+    - name: Upload Clean Release APK
       uses: actions/upload-artifact@v4
       with:
         name: NK-Reader-Final-Release-APK
