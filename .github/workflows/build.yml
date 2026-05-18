@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Highly Customized Web-Optimized Compose Code..."
+        echo "Generating Flawless MainActivity.kt with Loading Masking..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
@@ -332,8 +332,10 @@ jobs:
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     WebView(context).apply {
-                        // ग्य्राडियोको कन्टेनर र फालतू वेब संरचना टल्कब्याकले नपढोस् भन्नका लागि सुरक्षा
+                        // [CRITICAL FIX]: सुरुमै दृश्यात्मक र पहुँचयोग्यता दुवै रूपमा पूर्ण अदृश्य बनाउने
+                        visibility = View.INVISIBLE 
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        setBackgroundColor(0xFF121212.toInt()) // स्लो नेटमा सेतो झिल्का आउन नदिन डार्क ब्याकग्राउन्ड
                         
                         settings.apply {
                             javaScriptEnabled = true
@@ -346,7 +348,7 @@ jobs:
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 
-                                // कडा CSS र JS इन्जेक्सन जसले सिधै ग्य्राडियो वेबको रूपरङ्ग मेटाइदिन्छ
+                                // कडा CSS र JS इन्जेक्सन जसले सिधै हगिङ फेस र ग्य्राडियोको संरचना नामेट पार्छ
                                 val hideElementsJS = """
                                     (function() {
                                         var style = document.createElement('style');
@@ -372,7 +374,9 @@ jobs:
                                 """.trimIndent()
                                 
                                 view?.evaluateJavascript(hideElementsJS, null)
-                                // सग्लो इन्टरफेस तयार भएपछि मात्र पहुँचयोग्यता खुला गर्ने
+                                
+                                // [REVEAL MASK]: फालतू कुराहरू नष्ट भइसकेपछि मात्र स्क्रिनमा ल्याउने र TalkBack खुला गर्ने
+                                view?.visibility = View.VISIBLE
                                 view?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                             }
                         }
@@ -417,13 +421,13 @@ jobs:
           -Pandroid.injected.signing.key.alias=nkreader_alias \
           -Pandroid.injected.signing.key.password=naresh_secret_pass
 
-    # ९. फाइनल एपीके बाहिर निकाल्ने र नामकरण गर्ने
+    # ९. FINAL APK व्यवस्थित गर्ने
     - name: Organize Finished Production Artifact
       run: |
         mkdir -p release-output
         find app/build/outputs/apk/release/ -name "*.apk" -exec cp {} release-output/NK_Reader_v1.0_Release.apk \;
 
-    # १०. डाउनलोडका लागि गिटहब ड्यासबोर्ड (Artifacts) मा पठाउने
+    # १०. गिटहब ड्यासबोर्डमा पठाउने
     - name: Upload Clean Release APK
       uses: actions/upload-artifact@v4
       with:
