@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Kotlin Source with HF Header and Gradio Footer Killer..."
+        echo "Generating Jetpack Compose Code with Accessible Welcome Dialog..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
@@ -159,19 +159,32 @@ jobs:
         import androidx.activity.compose.rememberLauncherForActivityResult
         import androidx.activity.compose.setContent
         import androidx.activity.result.contract.ActivityResultContracts
+        import androidx.compose.foundation.focusable
         import androidx.compose.foundation.layout.Box
+        import androidx.compose.foundation.layout.Column
         import androidx.compose.foundation.layout.fillMaxSize
+        import androidx.compose.foundation.layout.fillMaxWidth
+        import androidx.compose.foundation.layout.height
         import androidx.compose.foundation.layout.padding
+        import androidx.compose.foundation.rememberScrollState
+        import androidx.compose.foundation.verticalScroll
+        import androidx.compose.material3.AlertDialog
+        import androidx.compose.material3.Button
         import androidx.compose.material3.ExperimentalMaterial3Api
+        import androidx.compose.material3.MaterialTheme
         import androidx.compose.material3.Scaffold
         import androidx.compose.material3.Text
         import androidx.compose.material3.TopAppBar
         import androidx.compose.material3.TopAppBarDefaults
         import androidx.compose.runtime.*
         import androidx.compose.ui.Modifier
+        import androidx.compose.ui.focus.FocusRequester
+        import androidx.compose.ui.focus.focusRequester
         import androidx.compose.ui.graphics.Color
         import androidx.compose.ui.semantics.contentDescription
         import androidx.compose.ui.semantics.semantics
+        import androidx.compose.ui.text.font.FontWeight
+        import androidx.compose.ui.unit.dp
         import androidx.compose.ui.viewinterop.AndroidView
 
         class MainActivity : ComponentActivity() {
@@ -184,6 +197,8 @@ jobs:
         @OptIn(ExperimentalMaterial3Api::class)
         @Composable
         fun NKReaderApp() {
+            var showWelcomeDialog by remember { mutableStateOf(true) }
+
             Scaffold(
                 topBar = {
                     TopAppBar(
@@ -205,6 +220,115 @@ jobs:
                 Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                     AccessibleWebViewContainer(url = "https://tech-mafia26-nk-reader.hf.space")
                 }
+
+                // पहुँचयोग्यता सुनिश्चित गरिएको सुरुवाती संवाद बक्स
+                if (showWelcomeDialog) {
+                    WelcomeDialog(onDismiss = { showWelcomeDialog = false })
+                }
+            }
+        }
+
+        @Composable
+        fun WelcomeDialog(onDismiss: () -> Unit) {
+            val focusRequester = remember { FocusRequester() }
+
+            AlertDialog(
+                onDismissRequest = { /* प्रयोगकर्ताले झुक्किएर बाहिर क्लिक गर्दा यो बन्द नहुने बनाउन खाली राखिएको */ },
+                title = {
+                    Text(
+                        text = "Welcome to NK Reader!",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .focusRequester(focusRequester)
+                            .focusable()
+                            .semantics {
+                                contentDescription = "Welcome to NK Reader! Important notification heading."
+                            }
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "Thank you for installing NK Reader, an accessibility-focused PDF reader designed for screen reader users. Before you begin, please take a moment to read this important note:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
+                        
+                        // टल्कब्याकले बुँदा र त्यसको विवरणलाई एउटै ब्लकमा स्पष्ट पढ्ने प्रविधि (Merge Descendants)
+                        AccessibleBulletItem(
+                            title = "About the Developer",
+                            desc = "This application is developed solely by Naresh Kushmi. I am not a professional developer; I am a passionate learner still polishing my coding skills."
+                        )
+                        AccessibleBulletItem(
+                            title = "Non-Commercial Project",
+                            desc = "This app is created completely for non-commercial and personal assistance purposes. There is zero external funding or investment behind this project."
+                        )
+                        AccessibleBulletItem(
+                            title = "Server & Performance",
+                            desc = "Because this is a self-funded project with no external investment, the app relies on free-tier servers. Due to this, server response times may occasionally be slow, and you might not always get the expected performance."
+                        )
+                        AccessibleBulletItem(
+                            title = "Manage Expectations",
+                            desc = "We kindly request you to keep your expectations modest regarding advanced features. It is a simple, straightforward tool meant to help you read PDFs."
+                        )
+
+                        Text(
+                            text = "Thank you for your understanding, patience, and support as I continue to learn and improve this app!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 12.dp)
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp) // ठूलो ५६dp टच टार्गेट (TalkBack को लागि उत्तम)
+                            .semantics {
+                                contentDescription = "OK, Let's Get Started button. Double tap to open the application."
+                            }
+                    ) {
+                        Text(text = "OK, Let's Get Started", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            )
+
+            // डाइलग खुल्ने बित्तिकै शीर्षक (Title) मा फोकस लैजाने स्वचालन
+            LaunchedEffect(Unit) {
+                try {
+                    focusRequester.requestFocus()
+                } catch (e: Exception) {
+                    // Fallback
+                }
+            }
+        }
+
+        @Composable
+        fun AccessibleBulletItem(title: String, desc: String) {
+            // mergeDescendants = true ले बुँदाको शीर्षक र बडीलाई एउटै स्वाइपमा सरर पढ्न मद्दत गर्छ
+            Column(
+                modifier = Modifier
+                    .padding(vertical = 6.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "$title: $desc"
+                    }
+            ) {
+                Text(
+                    text = "• $title:",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = desc,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
 
@@ -235,7 +359,6 @@ jobs:
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 
-                                // यो अत्याधुनिक स्क्रिप्टले CSS थप्छ र Hugging Face को सम्पूर्ण Header ब्लक नष्ट गर्छ
                                 val hideElementsJS = """
                                     (function() {
                                         var style = document.createElement('style');
@@ -246,7 +369,6 @@ jobs:
                                             var bodyChildren = document.body.children;
                                             for (var i = 0; i < bodyChildren.length; i++) {
                                                 var child = bodyChildren[i];
-                                                // यदि कुनै ब्लकमा Tech-Mafia26 लेखिएको छ तर त्यो मूल एप्लिकेसन होइन भने त्यसलाई हटाउने
                                                 if (child.innerHTML && child.innerHTML.includes("Tech-Mafia26") && !child.querySelector(".gradio-container")) {
                                                     child.style.setProperty("display", "none", "important");
                                                     child.style.setProperty("visibility", "hidden", "important");
@@ -254,7 +376,6 @@ jobs:
                                             }
                                         }
                                         
-                                        // विभिन्न समय अन्तरालमा कोड चलाउने ताकि बिस्तारै लोड भए पनि हेडर गायब होस्
                                         destroyHuggingFaceHeader();
                                         setTimeout(destroyHuggingFaceHeader, 300);
                                         setTimeout(destroyHuggingFaceHeader, 1000);
