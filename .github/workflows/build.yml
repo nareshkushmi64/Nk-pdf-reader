@@ -21,7 +21,7 @@ jobs:
         distribution: 'zulu'
         java-version: '17'
 
-    # ३. पहिले एउटा खाली फाइल बनाउने ताकि Gradle 9.5 ले प्रोजेक्ट हो भन्ने बुझोस्
+    # ३. पहिले एउटा खाली फाइल बनाउने ताकि Gradle ले प्रोजेक्ट हो भन्ने बुझोस्
     - name: Create Dummy Settings File for Wrapper Validation
       run: touch settings.gradle
 
@@ -70,7 +70,7 @@ jobs:
         }
         EOF
 
-        echo "Generating App level build.gradle with com.nareshkushmi.nkreader..."
+        echo "Generating App level build.gradle..."
         cat << 'EOF' > app/build.gradle
         plugins {
             id 'com.android.application'
@@ -117,10 +117,10 @@ jobs:
         }
         EOF
 
-        echo "Generating Accessible AndroidManifest.xml..."
+        echo "Generating Clean AndroidManifest.xml with Explicit Context..."
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.google.com/apk/res/android">
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.nareshkushmi.nkreader">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
             <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
@@ -133,7 +133,7 @@ jobs:
                 android:supportsRtl="true"
                 android:theme="@android:style/Theme.Material.NoActionBar">
                 <activity
-                    android:name=".MainActivity"
+                    android:name="com.nareshkushmi.nkreader.MainActivity"
                     android:exported="true">
                     <intent-filter>
                         <action android:name="android.intent.action.MAIN" />
@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating FIXED Kotlin Source Code MainActivity.kt..."
+        echo "Generating Validated Kotlin Source Code MainActivity.kt..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
