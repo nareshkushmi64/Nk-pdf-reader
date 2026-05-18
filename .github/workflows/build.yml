@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Fixed Jetpack Compose Code with No Double Reading Bug..."
+        echo "Generating Corrected Jetpack Compose Code with Proper Semantics Import..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
@@ -178,13 +178,10 @@ jobs:
         import androidx.compose.material3.TopAppBarDefaults
         import androidx.compose.runtime.*
         import androidx.compose.ui.Modifier
-        import androidx.compose.ui.clearAndSetSemantics
         import androidx.compose.ui.focus.FocusRequester
         import androidx.compose.ui.focus.focusRequester
         import androidx.compose.ui.graphics.Color
-        import androidx.compose.ui.semantics.contentDescription
-        import androidx.compose.ui.semantics.heading
-        import androidx.compose.ui.semantics.semantics
+        import androidx.compose.ui.semantics.* // सबै Semantics टूल्स (clearAndSetSemantics सहित) यहाँबाट लोड हुन्छन्
         import androidx.compose.ui.text.font.FontWeight
         import androidx.compose.ui.unit.dp
         import androidx.compose.ui.viewinterop.AndroidView
@@ -244,7 +241,7 @@ jobs:
                             .focusRequester(focusRequester)
                             .focusable()
                             .semantics {
-                                heading() // टल्कब्याकले यसलाई नेटिभ हेडिङको रूपमा १ पटक मात्र स्पष्ट पढ्छ
+                                heading()
                             }
                     )
                 },
@@ -290,7 +287,6 @@ jobs:
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
-                        // यहाँबाट झन्झटिलो वर्णन हटाइयो, प्रणालीले यसलाई स्वतः सफा "Button" घोषणा गर्नेछ
                     ) {
                         Text(text = "OK, Let's Get Started", style = MaterialTheme.typography.titleMedium)
                     }
@@ -306,7 +302,6 @@ jobs:
 
         @Composable
         fun AccessibleBulletItem(title: String, desc: String) {
-            // clearAndSetSemantics ले भित्रका Text हरू दोहोर्‍याएर पढ्न पूर्ण प्रतिबन्ध लगाउँछ
             Column(
                 modifier = Modifier
                     .padding(vertical = 6.dp)
