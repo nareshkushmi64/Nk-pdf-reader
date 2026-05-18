@@ -21,18 +21,22 @@ jobs:
         distribution: 'zulu'
         java-version: '17'
 
-    # ३. पहिलो काम: खाली फोल्डरमा ८.२ को र्‍यापर बनाउने (FIXED: Done before scaffolding to avoid Gradle 9.5 incompatibility)
-    - name: Initialize Gradle Wrapper First
+    # ३. जुक्ति (FIXED): पहिले एउटा खाली फाइल बनाउने ताकि Gradle 9.5 ले प्रोजेक्ट हो भन्ने बुझोस्
+    - name: Create Dummy Settings File for Wrapper Validation
+      run: touch settings.gradle
+
+    # ४. अब सुरक्षित रूपमा ८.२ को र्‍यापर जेनेरेट गर्ने
+    - name: Initialize Gradle Wrapper 8.2
       run: gradle wrapper --gradle-version 8.2 --distribution-type bin
 
-    # ४. कमाण्ड लाइन मार्फत पूर्ण एन्ड्रोइड जेटप्याक कम्पोज प्रोजेक्ट संरचना निर्माण गर्ने
+    # ५. कमाण्ड लाइन मार्फत पूर्ण एन्ड्रोइड जेटप्याक कम्पोज प्रोजेक्ट संरचना निर्माण गर्ने (Overwrite settings.gradle)
     - name: Scaffold Complete Android Jetpack Compose Project
       run: |
         echo "Creating production directory trees..."
         mkdir -p app/src/main/java/com/nareshkushmi/nkreader
         mkdir -p app/src/main
 
-        echo "Generating settings.gradle..."
+        echo "Generating real settings.gradle..."
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
@@ -251,7 +255,7 @@ jobs:
         }
         EOF
 
-    # ५. सुरक्षित र डिजिटल साइन गरिएको Keystore कुञ्जी बनाउने
+    # ६. सुरक्षित र डिजिटल साइन गरिएको Keystore कुञ्जी बनाउने
     - name: Generate Production Release Keystore
       run: |
         keytool -genkey -v -keystore release.keystore \
@@ -259,11 +263,11 @@ jobs:
         -storepass naresh_secret_pass -keypass naresh_secret_pass \
         -dname "CN=Naresh Kushmi, O=NK Reader, L=Kailali, C=NP"
 
-    # ६. ग्र्याडल कमाण्ड चलाउन लिनक्स पर्मिसन दिने
+    # ७. ग्र्याडल कमाण्ड चलाउन लिनक्स पर्मिसन दिने
     - name: Grant Execute Permission for Gradle Wrapper
       run: chmod +x gradlew
 
-    # ७. ८.२ र्‍यापर प्रयोग गरेर सुरक्षित Release APK कम्पाइल गर्ने
+    # ८. ८.२ र्‍यापर प्रयोग गरेर सुरक्षित Release APK कम्पाइल गर्ने
     - name: Compile and Build Certified Release APK
       run: |
         ./gradlew assembleRelease \
@@ -272,13 +276,13 @@ jobs:
           -Pandroid.injected.signing.key.alias=nkreader_alias \
           -Pandroid.injected.signing.key.password=naresh_secret_pass
 
-    # ८. फाइनल एपीके बाहिर निकाल्ने र नामकरण गर्ने
+    # ९. फाइनल एपीके बाहिर निकाल्ने र नामकरण गर्ने
     - name: Organize Finished Production Artifact
       run: |
         mkdir -p release-output
         find app/build/outputs/apk/release/ -name "*.apk" -exec cp {} release-output/NK_Reader_v1.0_Release.apk \;
 
-    # ९. डाउनलोडका लागि गिटहब ड्यासबोर्ड (Artifacts) मा पठाउने
+    # १०. डाउनलोडका लागि गिटहब ड्यासबोर्ड (Artifacts) मा पठाउने
     - name: Upload Clean Release APK
       uses: actions/upload-artifact@v4
       with:
