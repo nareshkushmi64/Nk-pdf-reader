@@ -117,7 +117,7 @@ jobs:
         }
         EOF
 
-        echo "Generating Clean AndroidManifest.xml with Explicit Context..."
+        echo "Generating Clean AndroidManifest.xml..."
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.nareshkushmi.nkreader">
@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Validated Kotlin Source Code MainActivity.kt..."
+        echo "Generating Kotlin Source with JavaScript Footer Killer..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
@@ -234,7 +234,17 @@ jobs:
                         webViewClient = object : WebViewClient() {
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
-                                view?.evaluateJavascript("document.body.style.padding = '0'; document.body.style.margin = '0';", null)
+                                
+                                // यो इन्जेक्सनले माथिको प्याडिङ सच्याउँछ र 'Built with Gradio' फुटर पूर्ण रूपमा ब्लक गर्छ
+                                val hideElementsJS = """
+                                    (function() {
+                                        var style = document.createElement('style');
+                                        style.innerHTML = 'html, body { padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio.app"], .built-with { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }';
+                                        document.head.appendChild(style);
+                                    })();
+                                """.trimIndent()
+                                
+                                view?.evaluateJavascript(hideElementsJS, null)
                             }
                         }
                         webChromeClient = object : WebChromeClient() {
