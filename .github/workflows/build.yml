@@ -144,22 +144,26 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Flawless MainActivity.kt with Loading Masking..."
+        echo "Generating MainActivity.kt with Native Network Error Interception..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
         import android.annotation.SuppressLint
+        import android.app.Activity
         import android.net.Uri
         import android.os.Bundle
         import android.view.View
         import android.webkit.ValueCallback
         import android.webkit.WebChromeClient
+        import android.webkit.WebResourceError
+        import android.webkit.WebResourceRequest
         import android.webkit.WebView
         import android.webkit.WebViewClient
         import androidx.activity.ComponentActivity
         import androidx.activity.compose.rememberLauncherForActivityResult
         import androidx.activity.compose.setContent
         import androidx.activity.result.contract.ActivityResultContracts
+        import androidx.compose.foundation.background
         import androidx.compose.foundation.focusable
         import androidx.compose.foundation.layout.Box
         import androidx.compose.foundation.layout.Column
@@ -175,15 +179,16 @@ jobs:
         import androidx.compose.material3.MaterialTheme
         import androidx.compose.material3.Scaffold
         import androidx.compose.material3.Text
-        import androidx.compose.material3.TopAppBar
-        import androidx.compose.material3.TopAppBarDefaults
         import androidx.compose.runtime.*
+        import androidx.compose.ui.Alignment
         import androidx.compose.ui.Modifier
         import androidx.compose.ui.focus.FocusRequester
         import androidx.compose.ui.focus.focusRequester
         import androidx.compose.ui.graphics.Color
+        import androidx.compose.ui.platform.LocalContext
         import androidx.compose.ui.semantics.*
         import androidx.compose.ui.text.font.FontWeight
+        import androidx.compose.ui.text.style.TextAlign
         import androidx.compose.ui.unit.dp
         import androidx.compose.ui.viewinterop.AndroidView
 
@@ -201,7 +206,7 @@ jobs:
 
             Scaffold(
                 topBar = {
-                    TopAppBar(
+                    androidx.compose.material3.TopAppBar(
                         title = { 
                             Text(
                                 text = "NK Reader",
@@ -210,7 +215,7 @@ jobs:
                                 }
                             ) 
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(
+                        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
                             containerColor = Color(0xFF1A1A2E),
                             titleContentColor = Color.White
                         )
@@ -320,6 +325,9 @@ jobs:
         @Composable
         fun AccessibleWebViewContainer(url: String) {
             var uploadMessageChannel by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+            var isNetworkError by remember { mutableStateOf(false) } // नेटवर्क इरर ट्र्याक गर्ने स्टेट
+            val context = LocalContext.current
+
             val fileChooserLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetContent()
             ) { uri: Uri? ->
@@ -328,75 +336,149 @@ jobs:
                 uploadMessageChannel = null
             }
 
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { context ->
-                    WebView(context).apply {
-                        // [CRITICAL FIX]: सुरुमै दृश्यात्मक र पहुँचयोग्यता दुवै रूपमा पूर्ण अदृश्य बनाउने
-                        visibility = View.INVISIBLE 
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                        setBackgroundColor(0xFF121212.toInt()) // स्लो नेटमा सेतो झिल्का आउन नदिन डार्क ब्याकग्राउन्ड
-                        
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            databaseEnabled = true
-                            allowFileAccess = true
-                            allowContentAccess = true
-                        }
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                
-                                // कडा CSS र JS इन्जेक्सन जसले सिधै हगिङ फेस र ग्य्राडियोको संरचना नामेट पार्छ
-                                val hideElementsJS = """
-                                    (function() {
-                                        var style = document.createElement('style');
-                                        style.innerHTML = 'html, body { background-color: #121212 !important; padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio.app"], .built-with { display: none !important; visibility: hidden !important; opacity: 0 !important; } header, [class*="header"], .hf-header { display: none !important; visibility: hidden !important; opacity: 0 !important; } .gradio-container-baseline { border: none !important; box-shadow: none !important; background: transparent !important; }';
-                                        document.head.appendChild(style);
+            val liveKillerJS = """
+                (function() {
+                    var styleId = 'nk-killer-style';
+                    if (!document.getElementById(styleId)) {
+                        var style = document.createElement('style');
+                        style.id = styleId;
+                        style.innerHTML = 'html, body { background-color: #121212 !important; padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio"], .built-with, [class*="built-with"] { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; pointer-events: none !important; } header, [class*="header"], .hf-header, [class*="hf-header"] { display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; } .gradio-container-baseline { border: none !important; box-shadow: none !important; background: transparent !important; }';
+                        document.head.appendChild(style);
+                    }
 
-                                        function wipeGradioGlitches() {
-                                            var bodyChildren = document.body.children;
-                                            for (var i = 0; i < bodyChildren.length; i++) {
-                                                var child = bodyChildren[i];
-                                                if (child.innerHTML && (child.innerHTML.includes("Tech-Mafia26") || child.innerHTML.includes("gradio")) && !child.querySelector(".gradio-container")) {
-                                                    child.style.setProperty("display", "none", "important");
-                                                    child.style.setProperty("visibility", "hidden", "important");
-                                                }
-                                            }
-                                        }
-                                        
-                                        wipeGradioGlitches();
-                                        setTimeout(wipeGradioGlitches, 200);
-                                        setTimeout(wipeGradioGlitches, 800);
-                                        setTimeout(wipeGradioGlitches, 2000);
-                                    })();
-                                """.trimIndent()
-                                
-                                view?.evaluateJavascript(hideElementsJS, null)
-                                
-                                // [REVEAL MASK]: फालतू कुराहरू नष्ट भइसकेपछि मात्र स्क्रिनमा ल्याउने र TalkBack खुला गर्ने
-                                view?.visibility = View.VISIBLE
-                                view?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-                            }
-                        }
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onShowFileChooser(
-                                webView: WebView?,
-                                filePathCallback: ValueCallback<Array<Uri>>?,
-                                fileChooserParams: FileChooserParams?
-                            ): Boolean {
-                                filePathCallback?.let {
-                                    uploadMessageChannel = it
-                                    fileChooserLauncher.launch("application/pdf")
+                    function forceWipe() {
+                        var targets = document.querySelectorAll('footer, .footer, [class*="footer"], a[href*="gradio"], .built-with, [class*="built-with"], header, [class*="header"], .hf-header, [class*="hf-header"]');
+                        targets.forEach(function(el) {
+                            el.style.setProperty("display", "none", "important");
+                            el.style.setProperty("visibility", "hidden", "important");
+                            el.style.setProperty("opacity", "0", "important");
+                            el.style.setProperty("height", "0", "important");
+                        });
+                        
+                        if (document.body) {
+                            var children = document.body.children;
+                            for (var i = 0; i < children.length; i++) {
+                                var child = children[i];
+                                if (child.innerHTML && (child.innerHTML.includes("Tech-Mafia26") || child.innerHTML.includes("Gradio")) && !child.querySelector(".gradio-container")) {
+                                    child.style.setProperty("display", "none", "important");
+                                    child.style.setProperty("visibility", "hidden", "important");
                                 }
-                                return true
                             }
                         }
-                        loadUrl(url)
+                    }
+
+                    forceWipe();
+                    if (document.body && !window.__nkObserverActive) {
+                        window.__nkObserverActive = true;
+                        var observer = new MutationObserver(forceWipe);
+                        observer.observe(document.body, { childList: true, subtree: true });
+                    }
+                })();
+            """.trimIndent()
+
+            // यदि इन्टरनेट छैन भने ब्राउजरको कसिङ्गर फालेर यो रैखिक लेआउट देखाइन्छ
+            if (isNetworkError) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF121212))
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "no internet available please connect to the internet and restart app again.",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .padding(bottom = 28.dp)
+                                .clearAndSetSemantics { 
+                                    contentDescription = "no internet available please connect to the internet and restart app again." 
+                                }
+                        )
+                        Button(
+                            onClick = {
+                                (context as? Activity)?.finish() // यो कमाण्डले एपलाई पूर्ण रूपमा बन्द गर्छ
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Text(text = "OK", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-            )
+            } else {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { context ->
+                        WebView(context).apply {
+                            visibility = View.INVISIBLE 
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                            setBackgroundColor(0xFF121212.toInt())
+                            
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = true
+                                allowFileAccess = true
+                                allowContentAccess = true
+                            }
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    if (!isNetworkError) {
+                                        view?.evaluateJavascript(liveKillerJS, null)
+                                        view?.visibility = View.VISIBLE
+                                        view?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                                    }
+                                }
+
+                                // [CRITICAL INTERCEPTION]: यसले मेन फ्रेम फेल हुँदा क्रोमको आफ्नै डिफल्ट स्क्रिन आउनै दिँदैन
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    super.onReceivedError(view, request, error)
+                                    if (request?.isForMainFrame == true) {
+                                        isNetworkError = true // नेट फेल भएमा हाम्रो कम्पोज लेआउट एक्टिभ हुन्छ
+                                    }
+                                }
+                            }
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    super.onProgressChanged(view, newProgress)
+                                    if (!isNetworkError) {
+                                        if (newProgress > 40) {
+                                            view?.evaluateJavascript(liveKillerJS, null)
+                                        }
+                                        if (newProgress == 100) {
+                                            view?.visibility = View.VISIBLE
+                                            view?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                                        }
+                                    }
+                                }
+                                override fun onShowFileChooser(
+                                    webView: WebView?,
+                                    filePathCallback: ValueCallback<Array<Uri>>?,
+                                    fileChooserParams: FileChooserParams?
+                                ): Boolean {
+                                    filePathCallback?.let {
+                                        uploadMessageChannel = it
+                                        fileChooserLauncher.launch("application/pdf")
+                                    }
+                                    return true
+                                }
+                            }
+                            loadUrl(url)
+                        }
+                    }
+                )
+            }
         }
         EOF
 
