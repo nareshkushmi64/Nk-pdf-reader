@@ -117,10 +117,10 @@ jobs:
         }
         EOF
 
-        echo "Generating Accessible AndroidManifest.xml with FIXED Namespace..."
+        echo "Generating Accessible AndroidManifest.xml..."
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+        <manifest xmlns:android="http://schemas.google.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
             <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
@@ -144,7 +144,7 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Screen-Reader Friendly English Interface MainActivity.kt..."
+        echo "Generating FIXED Kotlin Source Code MainActivity.kt..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
@@ -211,13 +211,13 @@ jobs:
         @SuppressLint("SetJavaScriptEnabled")
         @Composable
         fun AccessibleWebViewContainer(url: String) {
-            var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+            var uploadMessageChannel by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
             val fileChooserLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetContent()
             ) { uri: Uri? ->
-                if (uri != null) { filePathCallback?.onReceiveValue(arrayOf(uri)) } 
-                else { filePathCallback?.onReceiveValue(null) }
-                filePathCallback = null
+                if (uri != null) { uploadMessageChannel?.onReceiveValue(arrayOf(uri)) } 
+                else { uploadMessageChannel?.onReceiveValue(null) }
+                uploadMessageChannel = null
             }
 
             AndroidView(
@@ -230,8 +230,6 @@ jobs:
                             databaseEnabled = true
                             allowFileAccess = true
                             allowContentAccess = true
-                            @Suppress("DEPRECATION")
-                            accessibilityStatePresentOnScreen = true
                         }
                         webViewClient = object : WebViewClient() {
                             override fun onPageFinished(view: WebView?, url: String?) {
@@ -245,11 +243,9 @@ jobs:
                                 filePathCallback: ValueCallback<Array<Uri>>?,
                                 fileChooserParams: FileChooserParams?
                             ): Boolean {
-                                this@run {
-                                    filePathCallback?.let {
-                                        this.filePathCallback = it
-                                        fileChooserLauncher.launch("application/pdf")
-                                    }
+                                filePathCallback?.let {
+                                    uploadMessageChannel = it
+                                    fileChooserLauncher.launch("application/pdf")
                                 }
                                 return true
                             }
