@@ -29,7 +29,7 @@ jobs:
     - name: Initialize Gradle Wrapper 8.2
       run: gradle wrapper --gradle-version 8.2 --distribution-type bin
 
-    # ५. कमाण्ड LINE मार्फत पूर्ण एन्ड्रोइड प्रोजेक्ट संरचना निर्माण गर्ने (FIXED: Added gradle.properties with AndroidX support)
+    # ५. कमाण्ड लाइन मार्फत पूर्ण एन्ड्रोइड प्रोजेक्ट संरचना निर्माण गर्ने
     - name: Scaffold Complete Android Jetpack Compose Project
       run: |
         echo "Creating production directory trees..."
@@ -117,10 +117,10 @@ jobs:
         }
         EOF
 
-        echo "Generating Accessible AndroidManifest.xml with file access..."
+        echo "Generating Accessible AndroidManifest.xml with FIXED Namespace..."
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.google.com/apk/res/android">
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
             <uses-permission android:name="android.permission.READ_MEDIA_DOCUMENTS" />
