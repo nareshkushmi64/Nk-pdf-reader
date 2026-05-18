@@ -21,7 +21,11 @@ jobs:
         distribution: 'zulu'
         java-version: '17'
 
-    # ३. कमाण्ड लाइन मार्फत पूर्ण एन्ड्रोइड जेटप्याक कम्पोज प्रोजेक्ट संरचना शून्यबाट निर्माण गर्ने
+    # ३. पहिलो काम: खाली फोल्डरमा ८.२ को र्‍यापर बनाउने (FIXED: Done before scaffolding to avoid Gradle 9.5 incompatibility)
+    - name: Initialize Gradle Wrapper First
+      run: gradle wrapper --gradle-version 8.2 --distribution-type bin
+
+    # ४. कमाण्ड लाइन मार्फत पूर्ण एन्ड्रोइड जेटप्याक कम्पोज प्रोजेक्ट संरचना निर्माण गर्ने
     - name: Scaffold Complete Android Jetpack Compose Project
       run: |
         echo "Creating production directory trees..."
@@ -247,11 +251,7 @@ jobs:
         }
         EOF
 
-    # ४. सिस्टमको ग्र्याडल उपयोग गरेर तत्कालै र्‍यापर स्क्रिप्ट जेनेरेट गर्ने
-    - name: Build and Initialize Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.2
-
-    # ५. गुगल प्ले सर्भिस सपोर्ट गर्ने सुरक्षित र डिजिटल साइन गरिएको Keystore कुञ्जी बनाउने
+    # ५. सुरक्षित र डिजिटल साइन गरिएको Keystore कुञ्जी बनाउने
     - name: Generate Production Release Keystore
       run: |
         keytool -genkey -v -keystore release.keystore \
@@ -263,7 +263,7 @@ jobs:
     - name: Grant Execute Permission for Gradle Wrapper
       run: chmod +x gradlew
 
-    # ७. माथि निर्मित सम्पूर्ण संरचनालाई सुरक्षित रूपमा संकलन गरी रिलिज एपीके कम्पाइल गर्ने
+    # ७. ८.२ र्‍यापर प्रयोग गरेर सुरक्षित Release APK कम्पाइल गर्ने
     - name: Compile and Build Certified Release APK
       run: |
         ./gradlew assembleRelease \
