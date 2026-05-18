@@ -144,13 +144,14 @@ jobs:
         </manifest>
         EOF
 
-        echo "Generating Corrected Jetpack Compose Code with Proper Semantics Import..."
+        echo "Generating Highly Customized Web-Optimized Compose Code..."
         cat << 'EOF' > app/src/main/java/com/nareshkushmi/nkreader/MainActivity.kt
         package com.nareshkushmi.nkreader
 
         import android.annotation.SuppressLint
         import android.net.Uri
         import android.os.Bundle
+        import android.view.View
         import android.webkit.ValueCallback
         import android.webkit.WebChromeClient
         import android.webkit.WebView
@@ -181,7 +182,7 @@ jobs:
         import androidx.compose.ui.focus.FocusRequester
         import androidx.compose.ui.focus.focusRequester
         import androidx.compose.ui.graphics.Color
-        import androidx.compose.ui.semantics.* // सबै Semantics टूल्स (clearAndSetSemantics सहित) यहाँबाट लोड हुन्छन्
+        import androidx.compose.ui.semantics.*
         import androidx.compose.ui.text.font.FontWeight
         import androidx.compose.ui.unit.dp
         import androidx.compose.ui.viewinterop.AndroidView
@@ -205,7 +206,7 @@ jobs:
                             Text(
                                 text = "NK Reader",
                                 modifier = Modifier.semantics { 
-                                    contentDescription = "NK Reader, Accessible PDF OCR Application" 
+                                    contentDescription = "NK Reader App" 
                                 }
                             ) 
                         },
@@ -240,9 +241,7 @@ jobs:
                         modifier = Modifier
                             .focusRequester(focusRequester)
                             .focusable()
-                            .semantics {
-                                heading()
-                            }
+                            .semantics { heading() }
                     )
                 },
                 text = {
@@ -305,9 +304,7 @@ jobs:
             Column(
                 modifier = Modifier
                     .padding(vertical = 6.dp)
-                    .clearAndSetSemantics {
-                        contentDescription = "$title: $desc"
-                    }
+                    .clearAndSetSemantics { contentDescription = "$title: $desc" }
             ) {
                 Text(
                     text = "• $title:",
@@ -315,10 +312,7 @@ jobs:
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-                Text(
-                    text = desc,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Text(text = desc, style = MaterialTheme.typography.bodyMedium)
             }
         }
 
@@ -335,9 +329,12 @@ jobs:
             }
 
             AndroidView(
-                modifier = Modifier.fillMaxSize().semantics { contentDescription = "OCR Reading Screen and Controls Loading" },
+                modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     WebView(context).apply {
+                        // ग्य्राडियोको कन्टेनर र फालतू वेब संरचना टल्कब्याकले नपढोस् भन्नका लागि सुरक्षा
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
@@ -349,31 +346,34 @@ jobs:
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 
+                                // कडा CSS र JS इन्जेक्सन जसले सिधै ग्य्राडियो वेबको रूपरङ्ग मेटाइदिन्छ
                                 val hideElementsJS = """
                                     (function() {
                                         var style = document.createElement('style');
-                                        style.innerHTML = 'html, body { padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio.app"], .built-with { display: none !important; visibility: hidden !important; } header, [class*="header"], .hf-header { display: none !important; visibility: hidden !important; }';
+                                        style.innerHTML = 'html, body { background-color: #121212 !important; padding: 0 !important; margin: 0 !important; } footer, .footer, [class*="footer"], a[href*="gradio.app"], .built-with { display: none !important; visibility: hidden !important; opacity: 0 !important; } header, [class*="header"], .hf-header { display: none !important; visibility: hidden !important; opacity: 0 !important; } .gradio-container-baseline { border: none !important; box-shadow: none !important; background: transparent !important; }';
                                         document.head.appendChild(style);
 
-                                        function destroyHuggingFaceHeader() {
+                                        function wipeGradioGlitches() {
                                             var bodyChildren = document.body.children;
                                             for (var i = 0; i < bodyChildren.length; i++) {
                                                 var child = bodyChildren[i];
-                                                if (child.innerHTML && child.innerHTML.includes("Tech-Mafia26") && !child.querySelector(".gradio-container")) {
+                                                if (child.innerHTML && (child.innerHTML.includes("Tech-Mafia26") || child.innerHTML.includes("gradio")) && !child.querySelector(".gradio-container")) {
                                                     child.style.setProperty("display", "none", "important");
                                                     child.style.setProperty("visibility", "hidden", "important");
                                                 }
                                             }
                                         }
                                         
-                                        destroyHuggingFaceHeader();
-                                        setTimeout(destroyHuggingFaceHeader, 300);
-                                        setTimeout(destroyHuggingFaceHeader, 1000);
-                                        setTimeout(destroyHuggingFaceHeader, 2500);
+                                        wipeGradioGlitches();
+                                        setTimeout(wipeGradioGlitches, 200);
+                                        setTimeout(wipeGradioGlitches, 800);
+                                        setTimeout(wipeGradioGlitches, 2000);
                                     })();
                                 """.trimIndent()
                                 
                                 view?.evaluateJavascript(hideElementsJS, null)
+                                // सग्लो इन्टरफेस तयार भएपछि मात्र पहुँचयोग्यता खुला गर्ने
+                                view?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                             }
                         }
                         webChromeClient = object : WebChromeClient() {
